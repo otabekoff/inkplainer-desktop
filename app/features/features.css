@@ -53,6 +53,57 @@
 #view-bar .zoom-label { min-width: 46px; }
 #view-bar .sep { width: 1px; height: 18px; margin: 0 4px; background: var(--border-hi); }
 
+/* ── Backgrounds (backgrounds.js) ─────────────────────────────────────────── */
+.bg-presets { gap: 6px; }
+.bg-preset {
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--border-hi);
+  background-size: cover;
+  background-position: center;
+}
+.bg-preset:hover { transform: none; border-color: var(--accent); }
+.bg-preset.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.bg-image-tile {
+  display: grid;
+  place-items: center;
+  color: var(--muted-hi);
+  background-color: var(--panel);
+  border-style: dashed;
+}
+.bg-image-tile.has-image { border-style: solid; }
+.bg-image-tile.has-image svg { display: none; }
+
+#bg-image-opts {
+  display: none;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-ctl);
+  background: var(--panel);
+  gap: 8px;
+  flex-direction: column;
+}
+#bg-image-opts.show { display: flex; }
+.bg-image-row { display: flex; align-items: center; gap: 8px; }
+.bg-image-label { width: 34px; font-size: 10px; font-weight: 600; color: var(--muted-hi); }
+.bg-fit-pills { display: flex; gap: 4px; flex: 1; }
+.bg-fit-pills button,
+.bg-image-replace {
+  flex: 1;
+  padding: 5px 0;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--r-ctl);
+  background: var(--sidebar);
+  color: var(--muted-hi);
+  font: 500 10px "Geist", sans-serif;
+  cursor: pointer;
+}
+.bg-fit-pills button:hover,
+.bg-image-replace:hover { border-color: var(--accent); color: var(--text); }
+.bg-fit-pills button.active { border-color: var(--accent); background: var(--accent-lo); color: var(--text); box-shadow: 0 0 0 1px var(--accent); }
+#bg-wash { flex: 1; }
+.bg-wash-val { width: 30px; text-align: right; font-size: 10px; color: var(--muted-hi); font-variant-numeric: tabular-nums; }
+
 /* ── Drop anywhere (image-input.js) ───────────────────────────────────────── */
 #drop-anywhere {
   position: fixed;

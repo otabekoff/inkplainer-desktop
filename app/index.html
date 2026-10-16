@@ -5878,6 +5878,8 @@ function fillBg(c) {
     else { c.fillStyle = (bg.val === 'white') ? '#ffffff' : bg.val; c.fillRect(0,0,state.canvasW,state.canvasH); }
   } else if (bg.type === 'gradient' && BG_GRADIENTS[bg.key]) {
     c.save(); BG_GRADIENTS[bg.key](c); c.restore();
+  } else if (bg.type === 'image' && typeof drawImageBackground === 'function') {
+    drawImageBackground(c, bg); // features/backgrounds.js
   } else if (bg.type === 'custom') {
     c.fillStyle = bg.val; c.fillRect(0,0,state.canvasW,state.canvasH);
   } else {
@@ -11024,6 +11026,7 @@ function obEnd() {
 <link href="features/features.css" rel="stylesheet">
 <script src="features/editor-view.js"></script>
 <script src="features/image-input.js"></script>
+<script src="features/backgrounds.js"></script>
 <link href="desktop/desktop.css" rel="stylesheet">
 <script src="desktop/export.js"></script>
 <script src="desktop/desktop.js"></script>
