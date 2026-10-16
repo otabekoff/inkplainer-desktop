@@ -1897,7 +1897,9 @@ function _tickAllSlots() {
       // Use the live, maintained _runGroupAt (window-scoped, defined in index.html) —
       // not this file's own closure-local copy, which is kept only for standalone use
       // of animations.js and has fallen behind the current implementation.
-      setTimeout(() => window._runGroupAt(nextGroup), 200);
+      // Plus any "pause after" set on the layers that just finished (features/timeline.js).
+      const pause = window.inkTimeline ? window.inkTimeline.pauseAfter(state._groupPos ?? 0) : 0;
+      setTimeout(() => window._runGroupAt(nextGroup), 200 + pause * 1000);
     } else {
       // Same reasoning: use the live, maintained _allLayersDone.
       window._allLayersDone();

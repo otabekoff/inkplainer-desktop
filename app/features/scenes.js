@@ -296,7 +296,8 @@
   function render() {
     stash();
     strip.textContent = "";
-    board.querySelector(".sb-count").textContent = `${scenes.length}`;
+    const count = board.querySelector(".sb-count");
+    if (count) count.textContent = `${scenes.length}`;
     scenes.forEach((s, i) => {
       if (i > 0) {
         const chip = document.createElement("button");

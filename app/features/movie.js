@@ -121,15 +121,16 @@
    * @param {(fraction: number, scene: number) => void} [o.onProgress]
    * @param {() => boolean} [o.cancelled]
    * @param {number} [o.from] first scene to render (default 0)
+   * @param {number} [o.to] last scene to render (default: the last one)
    */
-  async function renderMovie({ fps, width, height, onFrame, onProgress, cancelled = () => false, from = 0 }) {
+  async function renderMovie({ fps, width, height, onFrame, onProgress, cancelled = () => false, from = 0, to }) {
     const even = (n) => Math.max(2, Math.round(n / 2) * 2);
     const W = even(width ?? state.canvasW);
     const H = even(height ?? state.canvasH);
     const [frame, fctx] = makeCanvas(W, H);
     const [sceneFrame, sctx2] = makeCanvas(W, H);
     const [prev, pctx] = makeCanvas(W, H);
-    const scenes = inkScenes.list;
+    const scenes = inkScenes.list.slice(0, Math.min(inkScenes.list.length, (to ?? Infinity) + 1));
     const startScene = inkScenes.current;
     let index = 0;
     let steps = 0;
