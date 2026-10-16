@@ -1,6 +1,6 @@
 [package]
 name = "inkplainer"
-version = "0.1.0"
+version = "0.2.0"
 description = "Inkplainer whiteboard animation maker as an offline Windows desktop app"
 authors = ["Otabek Sadiridinov"]
 license = "Apache-2.0"
