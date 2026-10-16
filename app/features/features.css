@@ -1,0 +1,74 @@
+/* Styles for the modules in app/features/. Loaded after the app's own <style>. */
+
+/* ── Editor view: scrollable viewport, zoom and tools (editor-view.js) ───── */
+#canvas-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  display: flex;
+  padding: 20px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
+}
+#canvas-viewport > #canvas-wrapper {
+  margin: auto;
+  flex-shrink: 0;
+}
+#canvas-viewport.tool-hand,
+#canvas-viewport.tool-hand * { cursor: grab !important; }
+#canvas-viewport.panning,
+#canvas-viewport.panning * { cursor: grabbing !important; }
+
+#view-bar {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--r-card);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+#view-bar button {
+  height: 30px;
+  min-width: 30px;
+  padding: 0 6px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: calc(var(--r-card) - 4px);
+  background: transparent;
+  color: var(--muted-hi);
+  font: 500 11px "Geist", sans-serif;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+#view-bar button:hover { background: var(--accent-lo); color: var(--text); }
+#view-bar button.active { background: var(--accent); color: #fff; }
+#view-bar .zoom-label { min-width: 46px; }
+#view-bar .sep { width: 1px; height: 18px; margin: 0 4px; background: var(--border-hi); }
+
+/* ── Drop anywhere (image-input.js) ───────────────────────────────────────── */
+#drop-anywhere {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: none;
+  place-items: center;
+  background: rgba(17, 17, 17, 0.28);
+  pointer-events: none;
+}
+#drop-anywhere.show { display: grid; }
+#drop-anywhere > div {
+  padding: 18px 28px;
+  border: 1px dashed var(--accent);
+  border-radius: var(--r-card);
+  background: var(--sidebar);
+  font: 600 14px "Geist", sans-serif;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}

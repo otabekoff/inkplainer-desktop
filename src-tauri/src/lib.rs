@@ -28,22 +28,28 @@ const BROWSER_ARGS: &str = concat!(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        // A second launch brings the open window forward instead of starting another app
-        // on the same project storage.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let mut builder = tauri::Builder::default();
+    // A second launch brings the open window forward instead of starting another app on the
+    // same project storage. Debug builds can opt out (INKPLAINER_ALLOW_MULTIPLE=1) so a
+    // scripted test instance with its own WebView2 data folder can run next to a normal one.
+    if !(cfg!(debug_assertions) && std::env::var_os("INKPLAINER_ALLOW_MULTIPLE").is_some()) {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
             }
-        }))
+        }));
+    }
+    builder
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let (width, height) = initial_size(app.handle());
-            // Debug builds expose DevTools on a port so the app can be driven by scripts.
+            // Debug builds expose DevTools on a port (INKPLAINER_DEVTOOLS_PORT, default 9229)
+            // so the app can be driven by scripts.
             let browser_args = if cfg!(debug_assertions) {
-                format!("{BROWSER_ARGS} --remote-debugging-port=9229")
+                let port = std::env::var("INKPLAINER_DEVTOOLS_PORT").unwrap_or_else(|_| "9229".into());
+                format!("{BROWSER_ARGS} --remote-debugging-port={port}")
             } else {
                 BROWSER_ARGS.to_string()
             };

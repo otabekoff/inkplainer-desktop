@@ -8350,6 +8350,7 @@ function closeTextEditor(commit) {
   _ts.editingId = null;
   document.getElementById('text-editor-overlay').style.display = 'none';
   document.getElementById('text-editor-frame').style.display   = 'none';
+  ta.blur(); // keep focus out of the hidden textarea, or keyboard shortcuts stay blocked
   redrawLayersOnCanvas(); // restore canvas before new layer is committed
 }
 
@@ -11014,6 +11015,9 @@ function obEnd() {
   }
 })();
 </script>
+<link href="features/features.css" rel="stylesheet">
+<script src="features/editor-view.js"></script>
+<script src="features/image-input.js"></script>
 <link href="desktop/desktop.css" rel="stylesheet">
 <script src="desktop/export.js"></script>
 <script src="desktop/desktop.js"></script>
