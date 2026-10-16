@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Inkplainer",
+  "version": "0.1.0",
+  "identifier": "uz.nurafshon.inkplainer",
+  "build": {
+    "beforeDevCommand": "bun run web",
+    "beforeBuildCommand": "bun run web",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
+      }
+    },
+    "publisher": "Otabek Sadiridinov",
+    "license": "Apache-2.0",
+    "category": "Video",
+    "shortDescription": "Whiteboard animation maker",
+    "longDescription": "Inkplainer turns images and text into hand-drawn whiteboard explainer videos. This desktop build runs fully offline.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

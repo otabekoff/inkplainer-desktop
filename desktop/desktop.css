@@ -1,0 +1,51 @@
+/* Desktop shell: turns Inkplainer's own top bar into the window's title bar.
+   The window has no native decorations, so the bar drags the window and carries
+   Windows-style minimize / maximize / close buttons on its right edge. */
+
+#topbar {
+  padding-right: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#win-controls {
+  display: flex;
+  align-self: stretch;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+#win-controls button {
+  width: 46px;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  cursor: default;
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  font-size: 10px;
+  line-height: 1;
+  transition: background 0.1s;
+}
+#win-controls button:hover { background: rgba(0, 0, 0, 0.06); }
+#win-controls button:active { background: rgba(0, 0, 0, 0.1); }
+#win-controls button.close:hover { background: #c42b1c; color: #fff; }
+#win-controls button.close:active { background: #b22a1b; color: #fff; }
+#win-controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Line under the export format pills naming the GPU in use (desktop/export.js). */
+#gpu-note {
+  margin-top: 7px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--muted-hi);
+}
+
+/* The browser-only "MP4 may not work in Firefox or Safari" warning does not apply here. */
+#mp4-warning { display: none !important; }
+
+/* Like a native title bar, dim the controls while the window is in the background. */
+body.win-blurred #win-controls button:not(:hover) { color: var(--muted); }

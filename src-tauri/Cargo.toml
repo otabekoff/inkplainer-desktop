@@ -1,0 +1,30 @@
+[package]
+name = "inkplainer"
+version = "0.1.0"
+description = "Inkplainer whiteboard animation maker as an offline Windows desktop app"
+authors = ["Otabek Sadiridinov"]
+license = "Apache-2.0"
+edition = "2024"
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name on Windows
+# (https://github.com/rust-lang/cargo/issues/8519).
+name = "inkplainer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+percent-encoding = "2"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+
+# https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
