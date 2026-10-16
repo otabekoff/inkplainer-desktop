@@ -271,3 +271,26 @@
 .mp-track { flex: 1; height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
 .mp-fill { height: 100%; width: 0; background: #fff; transition: width 0.1s linear; }
 .mp-info { min-width: 110px; text-align: right; color: rgba(255, 255, 255, 0.7); font-variant-numeric: tabular-nums; }
+
+/* ── Segmented button rows (layer-panel.js, camera.js) ───────────────────── */
+.ink-seg { display: flex; gap: 4px; margin-bottom: 8px; }
+.ink-seg button {
+  flex: 1;
+  padding: 5px 6px;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--r-ctl);
+  background: var(--panel);
+  color: var(--muted-hi);
+  font: 500 10.5px "Geist", sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ink-seg button:hover { border-color: var(--accent); color: var(--text); }
+.ink-seg button.active { border-color: var(--accent); background: var(--accent-lo); color: var(--text); box-shadow: 0 0 0 1px var(--accent); }
+
+/* ── Camera section in the bottom bar (camera.js) ─────────────────────────── */
+.bb-camera-scope { margin-left: 4px; font-weight: 500; letter-spacing: 0.4px; text-transform: none; color: var(--muted); }
+.bb-camera-mode { margin-bottom: 6px; }
+.bb-camera-opts.disabled { opacity: 0.4; pointer-events: none; }
+.bb-camera-end { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted-hi); margin-top: 2px; }
+.bb-camera-tip { margin-top: 4px; font-size: 9.5px; line-height: 1.35; color: var(--muted); }

@@ -97,8 +97,8 @@
     } else {
       c.fillStyle = "#ffffff";
       c.fillRect(0, 0, W, H);
-      c.drawImage(mainCanvas, 0, 0);
-      c.drawImage(handCanvas, 0, 0);
+      c.drawImage(mainCanvas, 0, 0, W, H);
+      c.drawImage(handCanvas, 0, 0, W, H);
     }
   }
 
@@ -114,14 +114,18 @@
   /**
    * @param {object} o
    * @param {number} o.fps
+   * @param {number} [o.width] output size (default: the canvas size). A smaller output than
+   *   the canvas keeps camera close-ups sharp: e.g. a 4K canvas exported at 1080p.
+   * @param {number} [o.height]
    * @param {(frame: HTMLCanvasElement, info: {index:number, time:number, scene:number}) => Promise<void>|void} o.onFrame
    * @param {(fraction: number, scene: number) => void} [o.onProgress]
    * @param {() => boolean} [o.cancelled]
    * @param {number} [o.from] first scene to render (default 0)
    */
-  async function renderMovie({ fps, onFrame, onProgress, cancelled = () => false, from = 0 }) {
-    const W = state.canvasW + (state.canvasW % 2);
-    const H = state.canvasH + (state.canvasH % 2);
+  async function renderMovie({ fps, width, height, onFrame, onProgress, cancelled = () => false, from = 0 }) {
+    const even = (n) => Math.max(2, Math.round(n / 2) * 2);
+    const W = even(width ?? state.canvasW);
+    const H = even(height ?? state.canvasH);
     const [frame, fctx] = makeCanvas(W, H);
     const [sceneFrame, sctx2] = makeCanvas(W, H);
     const [prev, pctx] = makeCanvas(W, H);

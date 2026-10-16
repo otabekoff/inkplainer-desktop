@@ -22,6 +22,8 @@
   ];
   const DEFAULT_TRANSITION = { type: "fade", duration: 0.8 };
   const DEFAULT_HOLD = 1.0;
+  // features/camera.js: off, or follow what is being drawn (zoom = closest zoom allowed).
+  const DEFAULT_CAMERA = { mode: "off", zoom: 1.8, ending: "wide" };
 
   let nextSceneId = 1;
   let scenes = [];
@@ -37,6 +39,7 @@
       selectedLayerId: null,
       transition: { ...DEFAULT_TRANSITION },
       hold: DEFAULT_HOLD,
+      camera: { ...DEFAULT_CAMERA },
       undo: [],
       redo: [],
       ...fields,
@@ -75,6 +78,7 @@
     if (typeof syncSidebarToLayer === "function") syncSidebarToLayer(state.selectedLayerId);
     if (typeof syncBgUI === "function") syncBgUI();
     render();
+    window.dispatchEvent(new CustomEvent("inkplainer:scene-changed", { detail: { index: i } }));
   }
 
   // opts.ui: refresh the editor (default true). opts.force: reload even if already current.
@@ -113,10 +117,14 @@
         canvasBg: JSON.parse(JSON.stringify(copyFrom.canvasBg)),
         transition: { ...copyFrom.transition },
         hold: copyFrom.hold,
+        camera: { ...copyFrom.camera },
       });
     } else {
-      // A new scene starts with the background of the one it follows.
-      scene = newScene({ canvasBg: JSON.parse(JSON.stringify(state.canvasBg || { type: "solid", val: "#ffffff" })) });
+      // A new scene starts with the background and camera of the one it follows.
+      scene = newScene({
+        canvasBg: JSON.parse(JSON.stringify(state.canvasBg || { type: "solid", val: "#ffffff" })),
+        camera: { ...(prev.camera || DEFAULT_CAMERA) },
+      });
     }
     scenes.splice(afterIndex + 1, 0, scene);
     current = afterIndex; // scenes[current] is still the stashed scene
@@ -158,7 +166,7 @@
     return {
       current,
       list: scenes.map((s, i) => {
-        const meta = { id: s.id, name: s.name, transition: s.transition, hold: s.hold };
+        const meta = { id: s.id, name: s.name, transition: s.transition, hold: s.hold, camera: s.camera };
         // The current scene's layers are saved by the project itself (savedState.layers).
         if (i === current) return { ...meta, live: true };
         return {
@@ -188,6 +196,7 @@
           name: d.name || "",
           transition: { ...DEFAULT_TRANSITION, ...(d.transition || {}) },
           hold: Number.isFinite(d.hold) ? d.hold : DEFAULT_HOLD,
+          camera: { ...DEFAULT_CAMERA, ...(d.camera || {}) },
           groups: d.groups || [],
           canvasBg: d.canvasBg || { type: "solid", val: "#ffffff" },
           selectedLayerId: d.selectedLayerId ?? null,
@@ -454,6 +463,9 @@
     },
     get current() {
       return current;
+    },
+    get currentScene() {
+      return scenes[current];
     },
     activate,
     render,

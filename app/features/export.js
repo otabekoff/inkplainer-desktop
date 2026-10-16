@@ -96,11 +96,25 @@
   // ── Export ────────────────────────────────────────────────────────────────
   class HardwareEncoderFailed extends Error {}
 
+  // Output sizes: the canvas size, or a standard smaller size of the same shape. Drawing on
+  // a bigger canvas than the video keeps camera close-ups sharp.
+  const SIZE_NAMES = { 2160: "4K", 1440: "2K", 1080: "1080p", 720: "720p" };
+  const even = (n) => Math.max(2, Math.round(n / 2) * 2);
+  function outputSizes() {
+    const W = state.canvasW;
+    const H = state.canvasH;
+    const short = Math.min(W, H);
+    const list = [{ key: "canvas", w: even(W), h: even(H), name: SIZE_NAMES[short] || `${W}×${H}` }];
+    for (const s of [1440, 1080, 720]) {
+      if (s < short) list.push({ key: String(s), w: even((W * s) / short), h: even((H * s) / short), name: SIZE_NAMES[s] });
+    }
+    return list;
+  }
+  const outputSize = () => outputSizes().find((o) => o.key === String(state.exportOutput)) || outputSizes()[0];
+
   async function render(format, progressText, progressBar, allowHardware) {
     const fps = fpsOf();
-    // Video codecs need even dimensions.
-    const W = state.canvasW + (state.canvasW % 2);
-    const H = state.canvasH + (state.canvasH % 2);
+    const { w: W, h: H } = outputSize();
     const bitrate = bitrateFor(W, H, state.exportQuality, fps);
     const enc = await pickEncoder(format, W, H, bitrate, fps, allowHardware);
     const { Muxer, ArrayBufferTarget } = await loadMuxer(format);
@@ -135,6 +149,8 @@
     try {
       await inkMovie.render({
         fps,
+        width: W,
+        height: H,
         // Closing the export banner sets state.recording to false.
         cancelled: () => !state.recording,
         onProgress: (fraction, s) => {
@@ -209,53 +225,82 @@
 
   function refreshDialog() {
     const fps = fpsOf();
-    const W = state.canvasW + (state.canvasW % 2);
-    const H = state.canvasH + (state.canvasH % 2);
+    const out = outputSize();
     for (const q of Object.keys(QUALITY_BPP)) {
-      setText(`.quality-pill[data-quality="${q}"] .quality-pill-desc`, `${(bitrateFor(W, H, q, fps) / 1e6).toFixed(0)} Mbps`);
+      setText(`.quality-pill[data-quality="${q}"] .quality-pill-desc`, `${(bitrateFor(out.w, out.h, q, fps) / 1e6).toFixed(0)} Mbps`);
     }
     document.querySelectorAll(".fps-pill").forEach((p) => p.classList.toggle("selected", Number(p.dataset.fps) === fps));
+    document.querySelectorAll(".size-out-pill").forEach((p) => p.classList.toggle("selected", p.dataset.size === out.key));
     const note = document.getElementById("gpu-note");
     if (note) {
       note.textContent = gpu.accelerated
-        ? `${W}×${H}, frame-exact · GPU: ${gpu.name}`
-        : `${W}×${H}, frame-exact · No GPU acceleration available; rendering on the CPU`;
+        ? `${out.w}×${out.h}, frame-exact · GPU: ${gpu.name}`
+        : `${out.w}×${out.h}, frame-exact · No GPU acceleration available; rendering on the CPU`;
     }
   }
 
-  // Adds the GPU line under the format pills and a "Frame rate" row after Quality,
-  // built from the Quality row's own markup so it matches.
+  // A labelled row of pills after `after`, built from the Quality row's own markup so it matches.
+  function pillSection(id, title, after) {
+    let section = document.getElementById(id);
+    if (section) return section.querySelector(".quality-pills");
+    const model = document.querySelector(".quality-pills")?.parentElement;
+    if (!model || !after) return null;
+    section = model.cloneNode(false);
+    section.id = id;
+    const label = model.firstElementChild?.cloneNode(true);
+    if (label && !label.classList.contains("quality-pills")) {
+      label.textContent = title;
+      section.appendChild(label);
+    }
+    const pills = document.createElement("div");
+    pills.className = "quality-pills";
+    section.appendChild(pills);
+    after.after(section);
+    return pills;
+  }
+
+  // Adds the GPU line under the format pills, then Frame rate and Output size rows after Quality.
   function ensureDialogControls() {
     if (!document.getElementById("gpu-note")) {
       const note = document.createElement("div");
       note.id = "gpu-note";
       document.querySelector(".format-pills")?.parentElement?.appendChild(note);
     }
-    if (document.getElementById("fps-section")) return;
-    const section = document.querySelector(".quality-pills")?.parentElement;
-    if (!section) return;
-    const fpsSection = section.cloneNode(false);
-    fpsSection.id = "fps-section";
-    const label = section.firstElementChild?.cloneNode(true);
-    if (label && !label.classList.contains("quality-pills")) {
-      label.textContent = "Frame rate";
-      fpsSection.appendChild(label);
+    const quality = document.querySelector(".quality-pills")?.parentElement;
+    const fpsPills = pillSection("fps-section", "Frame rate", quality);
+    if (fpsPills && !fpsPills.childElementCount) {
+      fpsPills.innerHTML = FPS_CHOICES.map(
+        (f) =>
+          `<div class="quality-pill fps-pill" data-fps="${f}"><div class="quality-pill-label">${f} fps</div>` +
+          `<div class="quality-pill-desc">${FPS_LABELS[f]}</div></div>`,
+      ).join("");
+      fpsPills.addEventListener("click", (e) => {
+        const pill = e.target.closest(".fps-pill");
+        if (!pill) return;
+        state.exportFps = Number(pill.dataset.fps);
+        refreshDialog();
+      });
     }
-    const pills = document.createElement("div");
-    pills.className = "quality-pills";
-    pills.innerHTML = FPS_CHOICES.map(
-      (f) =>
-        `<div class="quality-pill fps-pill" data-fps="${f}"><div class="quality-pill-label">${f} fps</div>` +
-        `<div class="quality-pill-desc">${FPS_LABELS[f]}</div></div>`,
-    ).join("");
-    pills.addEventListener("click", (e) => {
-      const pill = e.target.closest(".fps-pill");
-      if (!pill) return;
-      state.exportFps = Number(pill.dataset.fps);
-      refreshDialog();
-    });
-    fpsSection.appendChild(pills);
-    section.after(fpsSection);
+    // Output sizes depend on the canvas, so this row is rebuilt each time.
+    const sizePills = pillSection("size-section", "Output size", document.getElementById("fps-section"));
+    if (sizePills) {
+      sizePills.innerHTML = outputSizes()
+        .map(
+          (o) =>
+            `<div class="quality-pill size-out-pill" data-size="${o.key}"><div class="quality-pill-label">${o.name}</div>` +
+            `<div class="quality-pill-desc">${o.w}×${o.h}${o.key === "canvas" ? " · canvas" : ""}</div></div>`,
+        )
+        .join("");
+      if (!sizePills.dataset.wired) {
+        sizePills.dataset.wired = "1";
+        sizePills.addEventListener("click", (e) => {
+          const pill = e.target.closest(".size-out-pill");
+          if (!pill) return;
+          state.exportOutput = pill.dataset.size;
+          refreshDialog();
+        });
+      }
+    }
   }
 
   // The app's selectQuality clears "selected" on every .quality-pill, the fps pills included.
