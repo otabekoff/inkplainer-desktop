@@ -4320,6 +4320,7 @@ input[type="number"]:focus { border-color: var(--accent); }
   </div>
 </div>
 
+<script src="features/layer-model.js"></script>
 <script>
 // ═══════════════════════════════════════════
 // INDEXEDDB PROJECT SYSTEM
@@ -4385,42 +4386,7 @@ function saveProject(projectId = currentProjectId) {
         _currentRes: _currentRes,
         
         // Layers with image data
-        layers: state.layers ? state.layers.map((layer, index) => ({
-          id: layer.id,
-          name: layer.name,
-          savedIndex: index, // preserve visual stack order across async load
-          imageDataURL: getImageDataURL(layer.img), // Convert image to data URL
-          x: layer.x,
-          y: layer.y,
-          w: layer.w,
-          h: layer.h,
-          baseW: layer.baseW,
-          baseH: layer.baseH,
-          resizePct: layer.resizePct,
-          animStyle: layer.animStyle,
-          hand: layer.hand,
-          animOrder: layer.animOrder,
-          opacity: layer.opacity,
-          visible: layer.visible,
-          groupId: layer.groupId,
-          speed: layer.speed,
-          handSpeed: layer.handSpeed,
-          chunks: layer.chunks,
-          specChunks: layer.specChunks,
-          hasPngAlpha: layer.hasPngAlpha,
-          // Layer-specific animation settings
-          outlineDetect: layer.outlineDetect,
-          outlineAlgorithm: layer.outlineAlgorithm,
-          outlineStrokeStyle: layer.outlineStrokeStyle,
-          colorStyle: layer.colorStyle,
-          outlineColor: layer.outlineColor,
-          outlineThickness: layer.outlineThickness,
-          textAnimDir: layer.textAnimDir,
-          textDrawStyle: layer.textDrawStyle,
-          // Text layer properties
-          kind: layer.kind,
-          textProps: layer.textProps,
-        })) : [],
+        layers: state.layers ? state.layers.map((layer, index) => ({ ...serializeLayer(layer), savedIndex: index })) : [],
         
         selectedLayerId: state.selectedLayerId,
         groups: state.groups || [],
@@ -4458,13 +4424,7 @@ function saveProject(projectId = currentProjectId) {
 
 // Helper function to convert image to data URL
 function getImageDataURL(img) {
-  if (!img) return null;
-  const canvas = document.createElement('canvas');
-  canvas.width = img.width;
-  canvas.height = img.height;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, 0, 0);
-  return canvas.toDataURL('image/png');
+  return imageToDataURL(img); // features/layer-model.js (cached)
 }
 
 // Load project
@@ -4552,89 +4512,19 @@ function loadProject(projectId) {
       // Restore layers with images
       state.layers = [];
       if (savedState.layers && savedState.layers.length > 0) {
-        // CRITICAL: Set the layer ID counter BEFORE loading to avoid conflicts when adding new layers
+        // Set the layer ID counter before anything new is added, so ids never repeat.
         const maxId = Math.max(...savedState.layers.map(l => l.id));
-        if (maxId >= window._layerIdCounter) {
-          window._layerIdCounter = maxId;
-        }
-        
-        let loadedCount = 0;
-        const totalLayers = savedState.layers.length;
-        
-        savedState.layers.forEach((layerData, index) => {
-          if (layerData.imageDataURL) {
-            const img = new Image();
-            img.onload = () => {
-              const layer = {
-                id: layerData.id,
-                name: layerData.name,
-                _savedIndex: layerData.savedIndex ?? index, // for post-load sort
-                img: img,
-                x: layerData.x,
-                y: layerData.y,
-                w: layerData.w,
-                h: layerData.h,
-                baseW: layerData.baseW !== undefined ? layerData.baseW : layerData.w,
-                baseH: layerData.baseH !== undefined ? layerData.baseH : layerData.h,
-                resizePct: layerData.resizePct !== undefined ? layerData.resizePct : 100,
-                animStyle: layerData.animStyle || 'scanner',
-                hand: layerData.hand || 'custom1',
-                animOrder: layerData.animOrder !== undefined ? layerData.animOrder : null,
-                opacity: layerData.opacity !== undefined ? layerData.opacity : 1,
-                visible: layerData.visible !== undefined ? layerData.visible : true,
-                groupId: layerData.groupId || null,
-                speed: layerData.speed !== undefined ? layerData.speed : 40,
-                handSpeed: layerData.handSpeed !== undefined ? layerData.handSpeed : 6,
-                chunks: layerData.chunks !== undefined ? layerData.chunks : 30,
-                specChunks: layerData.specChunks !== undefined ? layerData.specChunks : 35,
-                hasPngAlpha: layerData.hasPngAlpha || false,
-                outlineDetect: layerData.outlineDetect,
-                outlineAlgorithm: layerData.outlineAlgorithm,
-                outlineStrokeStyle: layerData.outlineStrokeStyle,
-                colorStyle: layerData.colorStyle,
-                outlineColor: layerData.outlineColor,
-                outlineThickness: layerData.outlineThickness,
-                textAnimDir: layerData.textAnimDir,
-                textDrawStyle: layerData.textDrawStyle,
-                // Text layer properties
-                kind: layerData.kind || null,
-                textProps: layerData.textProps || null,
-              };
-              
-              state.layers.push(layer);
-              loadedCount++;
-              
-              if (loadedCount === totalLayers) {
-                // All layers loaded - restore visual stack order (savedIndex = position in state.layers at save time)
-                state.layers.sort((a, b) => (a._savedIndex ?? 0) - (b._savedIndex ?? 0));
-                // Clean up temp sort key
-                state.layers.forEach(l => delete l._savedIndex);
-                renderLayerList();
-                redrawLayersOnCanvas();
-                
-                // Select the saved layer or first layer
-                if (savedState.selectedLayerId) {
-                  selectLayer(savedState.selectedLayerId);
-                } else if (state.layers.length > 0) {
-                  selectLayer(state.layers[0].id);
-                }
-              }
-            };
-            img.onerror = () => {
-              console.error('Failed to load layer image');
-              loadedCount++;
-              if (loadedCount === totalLayers) {
-                renderLayerList();
-                redrawLayersOnCanvas();
-              }
-            };
-            img.src = layerData.imageDataURL;
-          } else {
-            loadedCount++;
-            if (loadedCount === totalLayers) {
-              renderLayerList();
-              redrawLayersOnCanvas();
-            }
+        _layerIdCounter = Math.max(_layerIdCounter, maxId);
+        const ordered = [...savedState.layers].sort((a, b) => (a.savedIndex ?? 0) - (b.savedIndex ?? 0));
+        deserializeLayers(ordered).then(layers => {
+          if (currentProjectId !== projectId) return; // another project was opened meanwhile
+          state.layers = layers;
+          renderLayerList();
+          redrawLayersOnCanvas();
+          if (savedState.selectedLayerId && layers.some(l => l.id === savedState.selectedLayerId)) {
+            selectLayer(savedState.selectedLayerId);
+          } else if (layers.length > 0) {
+            selectLayer(layers[0].id);
           }
         });
       } else {
@@ -5012,45 +4902,15 @@ function _serializeState() {
     colorStyle: state.colorStyle,
     selectedLayerId: state.selectedLayerId,
     groups: JSON.parse(JSON.stringify(state.groups || [])),
-    layers: (state.layers || []).map(layer => ({
-      id: layer.id,
-      name: layer.name,
-      imageDataURL: getImageDataURL(layer.img),
-      // Also store origImg for non-destructive crop
-      origImageDataURL: layer._origImg ? getImageDataURL(layer._origImg) : null,
-      origX: layer._origX, origY: layer._origY,
-      origW: layer._origW, origH: layer._origH,
-      x: layer.x, y: layer.y, w: layer.w, h: layer.h,
-      baseW: layer.baseW, baseH: layer.baseH,
-      resizePct: layer.resizePct,
-      animStyle: layer.animStyle,
-      hand: layer.hand,
-      animOrder: layer.animOrder,
-      opacity: layer.opacity,
-      visible: layer.visible,
-      groupId: layer.groupId,
-      speed: layer.speed,
-      handSpeed: layer.handSpeed,
-      chunks: layer.chunks,
-      specChunks: layer.specChunks,
-      hasPngAlpha: layer.hasPngAlpha,
-      outlineDetect: layer.outlineDetect,
-      outlineAlgorithm: layer.outlineAlgorithm,
-      outlineStrokeStyle: layer.outlineStrokeStyle,
-      colorStyle: layer.colorStyle,
-      outlineColor: layer.outlineColor,
-      outlineThickness: layer.outlineThickness,
-      textAnimDir: layer.textAnimDir,
-      textDrawStyle: layer.textDrawStyle,
-      zigzag: layer.zigzag,
-    })),
+    layers: (state.layers || []).map(serializeLayer),
   };
 }
 
 // ── Push a snapshot BEFORE a change is made ─────────────────────────────
-function pushUndoSnapshot() {
+// Pass a snapshot taken earlier to record the state from before a gesture (e.g. a drag).
+function pushUndoSnapshot(taken) {
   if (_undoRestoring) return;
-  const snap = _serializeState();
+  const snap = taken || _serializeState();
   _undoStack.push(snap);
   if (_undoStack.length > UNDO_MAX_DEPTH) _undoStack.shift();
   _redoStack = []; // new action invalidates redo future
@@ -5136,77 +4996,23 @@ function _applySnapshot(snap, label) {
     return;
   }
 
-  // Track max id to avoid counter conflicts
-  const maxId = Math.max(...snap.layers.map(l => l.id));
-  if (maxId >= (window._layerIdCounter || 0)) window._layerIdCounter = maxId;
+  // Keep the id counter ahead of every restored id.
+  _layerIdCounter = Math.max(_layerIdCounter, ...snap.layers.map(l => l.id));
+  if (lbl) lbl.textContent = `Restoring ${snap.layers.length} layers…`;
 
-  let loaded = 0;
-  const total = snap.layers.length;
-  const restoredLayers = new Array(total);
-
-  snap.layers.forEach((ld, idx) => {
-    const loadImg = (dataURL, cb) => {
-      if (!dataURL) { cb(null); return; }
-      const img = new Image();
-      img.onload  = () => cb(img);
-      img.onerror = () => cb(null);
-      img.src = dataURL;
-    };
-
-    loadImg(ld.imageDataURL, (img) => {
-      loadImg(ld.origImageDataURL, (origImg) => {
-        const layer = {
-          id: ld.id,
-          name: ld.name,
-          img,
-          x: ld.x, y: ld.y, w: ld.w, h: ld.h,
-          baseW: ld.baseW !== undefined ? ld.baseW : ld.w,
-          baseH: ld.baseH !== undefined ? ld.baseH : ld.h,
-          resizePct: ld.resizePct !== undefined ? ld.resizePct : 100,
-          animStyle: ld.animStyle || 'scanner',
-          hand: ld.hand || 'custom1',
-          animOrder: ld.animOrder !== undefined ? ld.animOrder : idx + 1,
-          opacity: ld.opacity !== undefined ? ld.opacity : 1,
-          visible: ld.visible !== undefined ? ld.visible : true,
-          groupId: ld.groupId || null,
-          speed: ld.speed !== undefined ? ld.speed : 40,
-          handSpeed: ld.handSpeed !== undefined ? ld.handSpeed : 6,
-          chunks: ld.chunks !== undefined ? ld.chunks : 30,
-          specChunks: ld.specChunks !== undefined ? ld.specChunks : 35,
-          hasPngAlpha: ld.hasPngAlpha || false,
-          outlineDetect: ld.outlineDetect,
-          outlineAlgorithm: ld.outlineAlgorithm,
-          outlineStrokeStyle: ld.outlineStrokeStyle,
-          colorStyle: ld.colorStyle,
-          outlineColor: ld.outlineColor,
-          outlineThickness: ld.outlineThickness,
-          textAnimDir: ld.textAnimDir,
-          textDrawStyle: ld.textDrawStyle,
-          zigzag: ld.zigzag,
-          _origImg: origImg || undefined,
-          _origX: ld.origX, _origY: ld.origY,
-          _origW: ld.origW, _origH: ld.origH,
-        };
-        restoredLayers[idx] = layer;
-        loaded++;
-        if (lbl) lbl.textContent = `Restoring ${loaded} of ${total}…`;
-
-        if (loaded === total) {
-          state.layers = restoredLayers.filter(Boolean);
-          state.layers.sort((a, b) => a.animOrder - b.animOrder);
-          state.selectedLayerId = snap.selectedLayerId || (state.layers[0]?.id ?? null);
-          renderLayerList();
-          redrawLayersOnCanvas();
-          drawSelectionHandles();
-          syncSidebarToLayer(state.selectedLayerId);
-          _updateToolToolbar();
-          _undoRestoring = false;
-          if (overlay) overlay.classList.remove('active');
-          scheduleAutoSave();
-          _syncUndoUI();
-        }
-      });
-    });
+  // The snapshot lists layers in stack order; keep it (sorting by animOrder reordered the stack).
+  deserializeLayers(snap.layers).then(layers => {
+    state.layers = layers;
+    state.selectedLayerId = layers.some(l => l.id === snap.selectedLayerId) ? snap.selectedLayerId : (layers[0]?.id ?? null);
+    renderLayerList();
+    redrawLayersOnCanvas();
+    drawSelectionHandles();
+    syncSidebarToLayer(state.selectedLayerId);
+    _updateToolToolbar();
+    _undoRestoring = false;
+    if (overlay) overlay.classList.remove('active');
+    scheduleAutoSave();
+    _syncUndoUI();
   });
 }
 
@@ -6334,7 +6140,7 @@ function _allLayersDone() {
   }
 
   // Reveal animation
-  const dur  = _revealDuration;
+  const dur  = (parseFloat(document.getElementById('reveal-duration-slider')?.value) || 1.2) * 1000; // was an undefined _revealDuration
   const ease = t => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
   const start = Date.now();
 
@@ -6840,6 +6646,7 @@ function hitTestLayer(px, py) {
   // Check from top (last) to bottom (first)
   for (let i = state.layers.length-1; i >= 0; i--) {
     const l = state.layers[i];
+    if (l.visible === false) continue; // hidden layers cannot be clicked
     if (px >= l.x && px <= l.x+l.w && py >= l.y && py <= l.y+l.h) return l;
   }
   return null;
@@ -6871,11 +6678,11 @@ selectCanvas.addEventListener('mousedown', e => {
     const handle = hitTestHandle(x,y,sel);
     if (handle) {
       _interact = {type:'resize', handle, startX:x, startY:y,
-        orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h}};
+        orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h}, before:_serializeState()};
       return;
     }
     if (x>=sel.x&&x<=sel.x+sel.w&&y>=sel.y&&y<=sel.y+sel.h) {
-      _interact = {type:'move', startX:x, startY:y, orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h}};
+      _interact = {type:'move', startX:x, startY:y, orig:{x:sel.x,y:sel.y,w:sel.w,h:sel.h}, before:_serializeState()};
       return;
     }
   }
@@ -6943,13 +6750,14 @@ document.addEventListener('mouseup', () => {
   const sel = getSelectedLayer();
   const wasInteract = _interact.type;
   const orig = _interact.orig;
+  const before = _interact.before;
   _interact = null;
   if (sel) {
     // Only push snapshot if position/size actually changed
     const changed = wasInteract === 'resize'
       ? (sel.x !== orig.x || sel.y !== orig.y || sel.w !== orig.w || sel.h !== orig.h)
       : (sel.x !== orig.x || sel.y !== orig.y);
-    if (changed) pushUndoSnapshot();
+    if (changed) pushUndoSnapshot(before); // the state from before the drag
     if (wasInteract === 'resize') {
       syncLayerResizeFromCurrentSize(sel);
       renderLayerList();
