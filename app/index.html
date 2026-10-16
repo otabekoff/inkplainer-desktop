@@ -4390,6 +4390,8 @@ function saveProject(projectId = currentProjectId) {
         
         selectedLayerId: state.selectedLayerId,
         groups: state.groups || [],
+        // Every scene (features/scenes.js); this scene's layers stay in layers above.
+        scenes: typeof serializeScenes === 'function' ? serializeScenes() : undefined,
         
         // Animation settings
         animStyle: state.animStyle,
@@ -4612,6 +4614,7 @@ function loadProject(projectId) {
 
       // Clear undo/redo history — no cross-project history
       clearUndoHistory();
+      window.dispatchEvent(new CustomEvent('inkplainer:project-loaded', { detail: { projectId, savedState } }));
     }
   };
   } catch (err) {
@@ -10832,11 +10835,15 @@ function obEnd() {
 })();
 </script>
 <link href="features/features.css" rel="stylesheet">
+<script src="features/clock.js"></script>
 <script src="features/editor-view.js"></script>
 <script src="features/image-input.js"></script>
 <script src="features/backgrounds.js"></script>
+<script src="features/scenes.js"></script>
+<script src="features/movie.js"></script>
+<script src="features/player.js"></script>
+<script src="features/export.js"></script>
 <link href="desktop/desktop.css" rel="stylesheet">
-<script src="desktop/export.js"></script>
 <script src="desktop/desktop.js"></script>
 </body>
 </html>

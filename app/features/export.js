@@ -1,131 +1,10 @@
-// Frame-exact, GPU-accelerated video export for the desktop build.
-//
-// Inkplainer advances its animation one step per requestAnimationFrame. In a browser that
-// ties the speed to the monitor (4x faster on a 240 Hz screen), and its exporter grabs
-// frames in real time, so slow frames get dropped and the video stutters.
-//
-// Here the page runs on a clock of its own:
-//  - Live: animation frames run at a fixed 60 per second whatever the refresh rate.
-//  - Export: the clock is stepped by hand, exactly 1/60 s per video frame. Animation frames,
-//    setTimeout and performance.now / Date.now all follow it, so every frame is rendered and
-//    encoded in order, none are dropped, and the video plays exactly like the preview.
-// Encoding uses WebCodecs, preferring the GPU's hardware encoder: H.264 for MP4, VP9 for WebM.
+// Video export: renders the movie (features/movie.js) frame by frame and encodes it with
+// WebCodecs, preferring the GPU's hardware encoder (H.264 for MP4, VP9 for WebM), falling
+// back to the CPU. Frames are never dropped: rendering waits for the encoder.
 (() => {
-  // The animation always advances 60 steps per second (its design rate); the video samples
-  // those steps at the chosen frame rate, so playback speed is the same at any fps.
-  const STEPS_PER_SECOND = 60;
-  const TICK = 1000 / STEPS_PER_SECOND;
+  const { native } = inkClock;
   const FPS_CHOICES = [24, 30, 60];
   const fpsOf = () => (FPS_CHOICES.includes(state.exportFps) ? state.exportFps : 60);
-  const HOLD_END_SECONDS = 0.5; // keep the finished drawing on screen briefly
-  const MAX_SECONDS = 60 * 60; // safety stop for an animation that never reports done
-
-  // ── Clock ─────────────────────────────────────────────────────────────────
-  const native = {
-    raf: window.requestAnimationFrame.bind(window),
-    setTimeout: window.setTimeout.bind(window),
-    clearTimeout: window.clearTimeout.bind(window),
-    perfNow: performance.now.bind(performance),
-    dateNow: Date.now,
-  };
-
-  let frameQueue = new Map();
-  let nextFrameId = 1;
-  window.requestAnimationFrame = (cb) => {
-    const id = nextFrameId++;
-    frameQueue.set(id, cb);
-    return id;
-  };
-  window.cancelAnimationFrame = (id) => {
-    frameQueue.delete(id);
-  };
-
-  function runFrame(time) {
-    const batch = frameQueue;
-    frameQueue = new Map();
-    for (const cb of batch.values()) {
-      try {
-        cb(time);
-      } catch (err) {
-        reportError(err);
-      }
-    }
-  }
-
-  let manual = false; // true while exporting
-  let virtualNow = 0;
-  let virtualStart = 0;
-  let dateAtStart = 0;
-  let timers = []; // { id, at, fn, args } while exporting
-  let nextTimerId = -1; // negative so they never collide with the browser's ids
-
-  performance.now = () => (manual ? virtualNow : native.perfNow());
-  Date.now = () => (manual ? dateAtStart + (virtualNow - virtualStart) : native.dateNow());
-  window.setTimeout = (fn, ms = 0, ...args) => {
-    if (!manual || typeof fn !== "function") return native.setTimeout(fn, ms, ...args);
-    const id = nextTimerId--;
-    timers.push({ id, at: virtualNow + Math.max(0, Number(ms) || 0), fn, args });
-    return id;
-  };
-  window.clearTimeout = (id) => {
-    if (typeof id === "number" && id < 0) timers = timers.filter((t) => t.id !== id);
-    else native.clearTimeout(id);
-  };
-
-  // Live: at most one animation frame per 1/60 s, at most one per display refresh.
-  let lastTick = native.perfNow();
-  (function pump(now) {
-    if (!manual && now - lastTick >= TICK - 1) {
-      lastTick = now - lastTick > TICK * 2 ? now : lastTick + TICK;
-      runFrame(now);
-    }
-    native.raf(pump);
-  })(native.perfNow());
-
-  function enterManual() {
-    manual = true;
-    virtualStart = virtualNow = native.perfNow();
-    dateAtStart = native.dateNow();
-    timers = [];
-  }
-
-  function leaveManual() {
-    const left = timers;
-    const offset = virtualNow;
-    manual = false;
-    timers = [];
-    lastTick = native.perfNow();
-    // Timers still pending go back to real time with whatever delay they had left.
-    for (const t of left) native.setTimeout(t.fn, Math.max(0, t.at - offset), ...t.args);
-  }
-
-  // Advances the clock by one video frame: due timers fire first, then animation frames,
-  // in the same order a browser runs them.
-  function stepFrame() {
-    virtualNow += TICK;
-    for (let guard = 0; guard < 10000; guard++) {
-      timers.sort((a, b) => a.at - b.at);
-      if (!timers.length || timers[0].at > virtualNow) break;
-      const t = timers.shift();
-      try {
-        t.fn(...t.args);
-      } catch (err) {
-        reportError(err);
-      }
-    }
-    runFrame(virtualNow);
-  }
-
-  const idle = () => frameQueue.size === 0 && timers.length === 0;
-
-  // Lets the page repaint (progress bar) without depending on rAF, which stops while
-  // the window is minimized.
-  const breathe = () =>
-    new Promise((resolve) => {
-      const done = () => resolve();
-      native.raf(done);
-      native.setTimeout(done, 30);
-    });
 
   // ── GPU detection ─────────────────────────────────────────────────────────
   function detectGpu() {
@@ -240,94 +119,50 @@
     });
     encoder.configure(enc.config);
 
-    // Composite of the drawing and the hand, on a GPU-backed canvas.
-    const frameCanvas = document.createElement("canvas");
-    frameCanvas.width = W;
-    frameCanvas.height = H;
-    const fctx = frameCanvas.getContext("2d", { alpha: false });
-    fctx.imageSmoothingQuality = "high";
-    const mainCanvas = document.getElementById("main-canvas");
-    // Other modules (camera, scene transitions) can take over composing a frame.
-    const compose = (time) => {
-      if (typeof window.inkplainerComposeFrame === "function") {
-        window.inkplainerComposeFrame(fctx, { mainCanvas, handCanvas, width: W, height: H, time, fps });
-      } else {
-        fctx.drawImage(mainCanvas, 0, 0);
-        fctx.drawImage(handCanvas, 0, 0);
-      }
-    };
-
     const where = enc.hardware ? `GPU (${gpu.name})` : "CPU";
     const mbps = (bitrate / 1e6).toFixed(0);
-    const status = (pct) =>
-      (progressText.textContent = `Rendering ${pct}% · ${enc.label} ${W}×${H} ${fps} fps, ${mbps} Mbps on ${where}`);
-    status(0);
-    progressBar.style.width = "0%";
+    const scenes = inkScenes.list.length;
+    let progress = 0;
+    let scene = 0;
+    const status = () => {
+      const what = scenes > 1 ? `scene ${scene + 1} of ${scenes}` : `${Math.round(progress * 100)}%`;
+      progressText.textContent = `Rendering ${what} · ${enc.label} ${W}×${H} ${fps} fps, ${mbps} Mbps on ${where}`;
+      progressBar.style.width = `${Math.round(progress * 95)}%`;
+    };
+    status();
+    let lastBreath = native.perfNow();
 
-    state.recording = true;
-    enterManual();
-    window.dispatchEvent(new CustomEvent("inkplainer:export-start", { detail: { fps } }));
-    let frames = 0;
-    let steps = 0;
-    let holdLeft = Math.round(HOLD_END_SECONDS * fps);
-    let idleSteps = 0;
-    let complete = false;
-    // Restarting resets the animation a step or two later, so until it has visibly started
-    // again, "complete" still describes the previous run.
-    let started = false;
     try {
-      restartAnim();
-      let lastBreath = native.perfNow();
-      for (;;) {
-        if (!state.recording) throw new Error("Export cancelled");
-        if (encoderError) {
-          throw enc.hardware ? new HardwareEncoderFailed(encoderError.message) : encoderError;
-        }
-
-        // Advance the animation to the end of this frame's time slot.
-        const until = Math.round(((frames + 1) * STEPS_PER_SECOND) / fps);
-        while (steps < until) {
-          stepFrame();
-          steps++;
-          if (!state.done) started = true;
-          complete = started && isExportAnimationComplete();
-          if (!complete && !state.playing && !state.done && idle()) {
-            // Nothing is animating or scheduled: there is nothing to record.
-            if (++idleSteps > STEPS_PER_SECOND * 2) {
-              throw new Error("Nothing to export. Add a layer and generate the animation first.");
-            }
-          } else {
-            idleSteps = 0;
-          }
-        }
-
-        compose(frames / fps);
-        const frame = new VideoFrame(frameCanvas, {
-          timestamp: Math.round((frames * 1e6) / fps),
-          duration: Math.round(1e6 / fps),
-        });
-        encoder.encode(frame, { keyFrame: frames % (fps * 2) === 0 });
-        frame.close();
-        frames++;
-
-        // Wait for the encoder instead of dropping frames.
-        while (encoder.encodeQueueSize > 6 && !encoderError) {
-          await new Promise((resolve) => {
-            encoder.addEventListener("dequeue", resolve, { once: true });
-            native.setTimeout(resolve, 20);
+      await inkMovie.render({
+        fps,
+        // Closing the export banner sets state.recording to false.
+        cancelled: () => !state.recording,
+        onProgress: (fraction, s) => {
+          progress = fraction;
+          scene = s;
+        },
+        onFrame: async (frameCanvas, { index }) => {
+          if (encoderError) throw enc.hardware ? new HardwareEncoderFailed(encoderError.message) : encoderError;
+          const frame = new VideoFrame(frameCanvas, {
+            timestamp: Math.round((index * 1e6) / fps),
+            duration: Math.round(1e6 / fps),
           });
-        }
-
-        if (complete && --holdLeft <= 0) break;
-        if (frames > MAX_SECONDS * fps) throw new Error("The animation did not finish within an hour of video");
-
-        if (native.perfNow() - lastBreath > 60) {
-          status(Math.round(getExportAnimationProgress() * 100));
-          progressBar.style.width = `${Math.round(getExportAnimationProgress() * 95)}%`;
-          await breathe();
-          lastBreath = native.perfNow();
-        }
-      }
+          encoder.encode(frame, { keyFrame: index % (fps * 2) === 0 });
+          frame.close();
+          // Wait for the encoder instead of dropping frames.
+          while (encoder.encodeQueueSize > 6 && !encoderError) {
+            await new Promise((resolve) => {
+              encoder.addEventListener("dequeue", resolve, { once: true });
+              native.setTimeout(resolve, 20);
+            });
+          }
+          if (native.perfNow() - lastBreath > 60) {
+            status();
+            await inkClock.breathe();
+            lastBreath = native.perfNow();
+          }
+        },
+      });
 
       progressText.textContent = `Finishing ${format.toUpperCase()}…`;
       await encoder.flush();
@@ -336,9 +171,6 @@
       progressBar.style.width = "100%";
       return new Blob([target.buffer], { type: format === "mp4" ? "video/mp4" : "video/webm" });
     } finally {
-      leaveManual();
-      state.recording = false;
-      window.dispatchEvent(new CustomEvent("inkplainer:export-end"));
       if (encoder.state !== "closed") encoder.close();
     }
   }

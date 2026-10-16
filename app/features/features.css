@@ -123,3 +123,151 @@
   font: 600 14px "Geist", sans-serif;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
 }
+
+/* ── Storyboard: scenes strip (scenes.js) ─────────────────────────────────── */
+#storyboard {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--sidebar);
+  border-top: 1px solid var(--border);
+  min-height: 96px;
+}
+.sb-head { display: flex; flex-direction: column; gap: 2px; width: 46px; flex-shrink: 0; }
+.sb-title { font-size: 9px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted-hi); }
+.sb-count { font-size: 18px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.sb-strip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 2px;
+  scrollbar-width: thin;
+}
+.sb-scene {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--r-ctl);
+  background: var(--panel);
+  cursor: pointer;
+}
+.sb-scene:hover { border-color: var(--accent); }
+.sb-scene.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--sidebar); }
+.sb-scene.drop-target { border-style: dashed; border-color: var(--accent); }
+.sb-thumb { display: block; height: 54px; width: auto; border-radius: calc(var(--r-ctl) - 3px); box-shadow: 0 0 0 1px var(--border); }
+.sb-label { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted-hi); max-width: 120px; }
+.sb-num { min-width: 15px; height: 15px; padding: 0 3px; display: grid; place-items: center; border-radius: 999px; background: var(--accent); color: #fff; font-size: 9px; font-weight: 600; }
+.sb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-tools { position: absolute; top: 8px; right: 8px; display: none; gap: 3px; }
+.sb-scene:hover .sb-tools { display: flex; }
+.sb-tools button {
+  width: 22px; height: 22px; display: grid; place-items: center;
+  border: 1px solid var(--border-hi); border-radius: 6px;
+  background: rgba(255, 255, 255, 0.94); color: var(--muted-hi); cursor: pointer;
+}
+.sb-tools button:hover { color: var(--text); border-color: var(--accent); }
+.sb-transition {
+  flex-shrink: 0;
+  padding: 4px 7px;
+  border: 1px dashed var(--border-hi);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-hi);
+  font: 500 9.5px "Geist", sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sb-transition:hover { border-color: var(--accent); color: var(--text); border-style: solid; }
+.sb-add {
+  flex-shrink: 0;
+  height: 76px;
+  width: 64px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  border: 1px dashed var(--border-hi);
+  border-radius: var(--r-ctl);
+  background: transparent;
+  color: var(--muted-hi);
+  font: 500 10px "Geist", sans-serif;
+  cursor: pointer;
+}
+.sb-add:hover { border-color: var(--accent); color: var(--text); background: var(--accent-lo); }
+.sb-actions { flex-shrink: 0; }
+.sb-play {
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: var(--r-ctl);
+  background: var(--accent);
+  color: #fff;
+  font: 600 12px "Geist", sans-serif;
+  cursor: pointer;
+}
+.sb-play:hover { background: #000; }
+
+#scene-popover {
+  position: fixed;
+  z-index: 3000;
+  display: none;
+  width: 300px;
+  padding: 12px;
+  background: var(--sidebar);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--r-card);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
+  font-family: "Geist", sans-serif;
+}
+#scene-popover.show { display: block; }
+.sp-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.sp-section { margin: 12px 0 6px; font-size: 9px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted-hi); }
+.sp-field { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted-hi); }
+.sp-field > span { width: 56px; flex-shrink: 0; }
+.sp-field input[type="text"] {
+  flex: 1; padding: 6px 8px;
+  border: 1px solid var(--border-hi); border-radius: var(--r-ctl);
+  font: 12px "Geist", sans-serif; color: var(--text); background: var(--sidebar);
+}
+.sp-field input[type="text"]:focus { outline: none; border-color: var(--accent); }
+.sp-field input[type="range"] { flex: 1; }
+.sp-field b { width: 36px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text); }
+.sp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 8px; }
+.sp-grid button {
+  padding: 6px 4px;
+  border: 1px solid var(--border); border-radius: var(--r-ctl);
+  background: var(--panel); color: var(--muted-hi);
+  font: 500 10px "Geist", sans-serif; cursor: pointer;
+}
+.sp-grid button:hover { border-color: var(--border-hi); color: var(--text); }
+.sp-grid button.active { border-color: var(--accent); background: var(--accent-lo); color: var(--text); box-shadow: 0 0 0 1px var(--accent); }
+
+/* ── Movie preview player (player.js) ────────────────────────────────────── */
+#movie-player {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: none;
+  flex-direction: column;
+  background: rgba(10, 10, 12, 0.92);
+  backdrop-filter: blur(6px);
+}
+#movie-player.show { display: flex; }
+.mp-stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: 56px 40px 16px; }
+.mp-stage canvas { display: block; border-radius: 6px; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5); }
+.mp-bar { display: flex; align-items: center; gap: 14px; padding: 14px 40px 22px; color: #fff; font: 500 12px "Geist", sans-serif; }
+.mp-close {
+  width: 34px; height: 34px; display: grid; place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px;
+  background: transparent; color: #fff; cursor: pointer;
+}
+.mp-close:hover { background: rgba(255, 255, 255, 0.12); }
+.mp-track { flex: 1; height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
+.mp-fill { height: 100%; width: 0; background: #fff; transition: width 0.1s linear; }
+.mp-info { min-width: 110px; text-align: right; color: rgba(255, 255, 255, 0.7); font-variant-numeric: tabular-nums; }
