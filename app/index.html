@@ -8513,6 +8513,8 @@ function _flattenOffscreenColors(canvas, maxColors) {
 // Calls the appropriate setup function from AnimationEngine based on current style
 function setupStyle() {
   switch(state.animStyle) {
+    case 'enter-move': case 'enter-fade': case 'enter-pop': case 'enter-drop':
+      inkEntrances.setup(); break; // features/entrances.js
     case 'contour':         AnimationEngine.setupContour();                  break;
     case 'outlinechunks':   AnimationEngine.setupOutlineChunks();            break;
     case 'outlinefill':     AnimationEngine.setupOutlineFill();              break;
@@ -10842,6 +10844,7 @@ function obEnd() {
 <script src="features/scenes.js"></script>
 <script src="features/layer-panel.js"></script>
 <script src="features/camera.js"></script>
+<script src="features/entrances.js"></script>
 <script src="features/movie.js"></script>
 <script src="features/player.js"></script>
 <script src="features/export.js"></script>
