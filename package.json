@@ -4,12 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "setup": "node scripts/setup.mjs",
     "vendor": "node scripts/vendor.mjs",
     "web": "node scripts/build-web.mjs",
     "app": "tauri dev",
     "build": "tauri build",
-    "icons": "tauri icon upstream/favicon.svg -o src-tauri/icons",
+    "icons": "tauri icon src-tauri/icons/source/icon.svg -o src-tauri/icons && node -e \"require('fs').rmSync('src-tauri/icons/android',{recursive:true,force:true});require('fs').rmSync('src-tauri/icons/ios',{recursive:true,force:true})\"",
     "tauri": "tauri"
   },
   "devDependencies": {
