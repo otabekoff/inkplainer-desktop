@@ -11,8 +11,12 @@
 //    encoded in order, none are dropped, and the video plays exactly like the preview.
 // Encoding uses WebCodecs, preferring the GPU's hardware encoder: H.264 for MP4, VP9 for WebM.
 (() => {
-  const FPS = 60;
-  const TICK = 1000 / FPS;
+  // The animation always advances 60 steps per second (its design rate); the video samples
+  // those steps at the chosen frame rate, so playback speed is the same at any fps.
+  const STEPS_PER_SECOND = 60;
+  const TICK = 1000 / STEPS_PER_SECOND;
+  const FPS_CHOICES = [24, 30, 60];
+  const fpsOf = () => (FPS_CHOICES.includes(state.exportFps) ? state.exportFps : 60);
   const HOLD_END_SECONDS = 0.5; // keep the finished drawing on screen briefly
   const MAX_SECONDS = 60 * 60; // safety stop for an animation that never reports done
 
@@ -145,34 +149,50 @@
   // ── Encoder choice ────────────────────────────────────────────────────────
   const QUALITY_BPP = { high: 0.16, medium: 0.09, low: 0.05 }; // bits per pixel per frame
 
-  function bitrateFor(width, height, quality) {
+  function bitrateFor(width, height, quality, fps) {
     const bpp = QUALITY_BPP[quality] ?? QUALITY_BPP.high;
-    return Math.round(Math.max(2_000_000, width * height * FPS * bpp));
+    return Math.round(Math.max(2_000_000, width * height * fps * bpp));
   }
 
-  const CODECS = {
-    // H.264 High at level 5.1 covers every canvas size Inkplainer offers at 60 fps.
-    mp4: [
-      { codec: "avc1.640033", muxer: "avc", label: "H.264" },
-      { codec: "avc1.4d0033", muxer: "avc", label: "H.264" },
-    ],
-    webm: [
+  // Smallest H.264 level whose macroblock rate and frame size fit (4K at 60 fps needs 5.2).
+  function avcLevel(width, height, fps) {
+    const mbs = Math.ceil(width / 16) * Math.ceil(height / 16);
+    const levels = [
+      [0x28, 245760, 8192], // 4.0
+      [0x2a, 522240, 8704], // 4.2
+      [0x32, 589824, 22080], // 5.0
+      [0x33, 983040, 36864], // 5.1
+      [0x34, 2073600, 36864], // 5.2
+    ];
+    const hit = levels.find(([, mbps, frame]) => mbs <= frame && mbs * fps <= mbps) ?? levels[levels.length - 1];
+    return hit[0].toString(16).padStart(2, "0");
+  }
+
+  function codecsFor(format, width, height, fps) {
+    if (format === "mp4") {
+      const level = avcLevel(width, height, fps);
+      return [
+        { codec: `avc1.6400${level}`, muxer: "avc", label: "H.264" }, // High
+        { codec: `avc1.4d00${level}`, muxer: "avc", label: "H.264" }, // Main
+      ];
+    }
+    return [
       { codec: "vp09.00.51.08", muxer: "V_VP9", label: "VP9" },
       { codec: "vp8", muxer: "V_VP8", label: "VP8" },
-    ],
-  };
+    ];
+  }
 
-  async function pickEncoder(format, width, height, bitrate, allowHardware) {
+  async function pickEncoder(format, width, height, bitrate, fps, allowHardware) {
     const accels = allowHardware ? ["prefer-hardware", "no-preference"] : ["prefer-software"];
     for (const accel of accels) {
-      for (const c of CODECS[format]) {
+      for (const c of codecsFor(format, width, height, fps)) {
         const config = {
           codec: c.codec,
           width,
           height,
           bitrate,
           bitrateMode: "variable",
-          framerate: FPS,
+          framerate: fps,
           latencyMode: "quality",
           hardwareAcceleration: accel,
           contentHint: "detail",
@@ -198,17 +218,18 @@
   class HardwareEncoderFailed extends Error {}
 
   async function render(format, progressText, progressBar, allowHardware) {
+    const fps = fpsOf();
     // Video codecs need even dimensions.
     const W = state.canvasW + (state.canvasW % 2);
     const H = state.canvasH + (state.canvasH % 2);
-    const bitrate = bitrateFor(W, H, state.exportQuality);
-    const enc = await pickEncoder(format, W, H, bitrate, allowHardware);
+    const bitrate = bitrateFor(W, H, state.exportQuality, fps);
+    const enc = await pickEncoder(format, W, H, bitrate, fps, allowHardware);
     const { Muxer, ArrayBufferTarget } = await loadMuxer(format);
 
     const target = new ArrayBufferTarget();
     const muxer = new Muxer({
       target,
-      video: { codec: enc.muxer, width: W, height: H, ...(format === "webm" ? { frameRate: FPS } : {}) },
+      video: { codec: enc.muxer, width: W, height: H, ...(format === "webm" ? { frameRate: fps } : {}) },
       ...(format === "mp4" ? { fastStart: "in-memory" } : {}),
     });
 
@@ -226,20 +247,32 @@
     const fctx = frameCanvas.getContext("2d", { alpha: false });
     fctx.imageSmoothingQuality = "high";
     const mainCanvas = document.getElementById("main-canvas");
+    // Other modules (camera, scene transitions) can take over composing a frame.
+    const compose = (time) => {
+      if (typeof window.inkplainerComposeFrame === "function") {
+        window.inkplainerComposeFrame(fctx, { mainCanvas, handCanvas, width: W, height: H, time, fps });
+      } else {
+        fctx.drawImage(mainCanvas, 0, 0);
+        fctx.drawImage(handCanvas, 0, 0);
+      }
+    };
 
     const where = enc.hardware ? `GPU (${gpu.name})` : "CPU";
     const mbps = (bitrate / 1e6).toFixed(0);
     const status = (pct) =>
-      (progressText.textContent = `Rendering ${pct}% · ${enc.label} ${W}×${H} ${FPS} fps, ${mbps} Mbps on ${where}`);
+      (progressText.textContent = `Rendering ${pct}% · ${enc.label} ${W}×${H} ${fps} fps, ${mbps} Mbps on ${where}`);
     status(0);
     progressBar.style.width = "0%";
 
     state.recording = true;
     enterManual();
+    window.dispatchEvent(new CustomEvent("inkplainer:export-start", { detail: { fps } }));
     let frames = 0;
-    let holdLeft = Math.round(HOLD_END_SECONDS * FPS);
-    let idleFrames = 0;
-    // Restarting resets the animation a frame or two later, so until it has visibly started
+    let steps = 0;
+    let holdLeft = Math.round(HOLD_END_SECONDS * fps);
+    let idleSteps = 0;
+    let complete = false;
+    // Restarting resets the animation a step or two later, so until it has visibly started
     // again, "complete" still describes the previous run.
     let started = false;
     try {
@@ -251,15 +284,29 @@
           throw enc.hardware ? new HardwareEncoderFailed(encoderError.message) : encoderError;
         }
 
-        stepFrame();
+        // Advance the animation to the end of this frame's time slot.
+        const until = Math.round(((frames + 1) * STEPS_PER_SECOND) / fps);
+        while (steps < until) {
+          stepFrame();
+          steps++;
+          if (!state.done) started = true;
+          complete = started && isExportAnimationComplete();
+          if (!complete && !state.playing && !state.done && idle()) {
+            // Nothing is animating or scheduled: there is nothing to record.
+            if (++idleSteps > STEPS_PER_SECOND * 2) {
+              throw new Error("Nothing to export. Add a layer and generate the animation first.");
+            }
+          } else {
+            idleSteps = 0;
+          }
+        }
 
-        fctx.drawImage(mainCanvas, 0, 0, state.canvasW, state.canvasH, 0, 0, state.canvasW, state.canvasH);
-        fctx.drawImage(handCanvas, 0, 0, state.canvasW, state.canvasH, 0, 0, state.canvasW, state.canvasH);
+        compose(frames / fps);
         const frame = new VideoFrame(frameCanvas, {
-          timestamp: Math.round((frames * 1e6) / FPS),
-          duration: Math.round(1e6 / FPS),
+          timestamp: Math.round((frames * 1e6) / fps),
+          duration: Math.round(1e6 / fps),
         });
-        encoder.encode(frame, { keyFrame: frames % (FPS * 2) === 0 });
+        encoder.encode(frame, { keyFrame: frames % (fps * 2) === 0 });
         frame.close();
         frames++;
 
@@ -271,16 +318,8 @@
           });
         }
 
-        if (!state.done) started = true;
-        if (started && isExportAnimationComplete()) {
-          if (--holdLeft <= 0) break;
-        } else if (!state.playing && !state.done && idle()) {
-          // Nothing is animating or scheduled: there is nothing to record.
-          if (++idleFrames > FPS * 2) throw new Error("Nothing to export. Add a layer and generate the animation first.");
-        } else {
-          idleFrames = 0;
-        }
-        if (frames > MAX_SECONDS * FPS) throw new Error("The animation did not finish within an hour of video");
+        if (complete && --holdLeft <= 0) break;
+        if (frames > MAX_SECONDS * fps) throw new Error("The animation did not finish within an hour of video");
 
         if (native.perfNow() - lastBreath > 60) {
           status(Math.round(getExportAnimationProgress() * 100));
@@ -299,6 +338,7 @@
     } finally {
       leaveManual();
       state.recording = false;
+      window.dispatchEvent(new CustomEvent("inkplainer:export-end"));
       if (encoder.state !== "closed") encoder.close();
     }
   }
@@ -324,36 +364,84 @@
   window.recordWebM = (progressText, progressBar) => exportVideo("webm", progressText, progressBar);
 
   // ── Export dialog ─────────────────────────────────────────────────────────
-  // MP4 always works here, so make it the default, and show real bitrates.
+  // MP4 always works here, so make it the default; show real bitrates and a frame-rate choice.
   if (!state.exportFormat) state.exportFormat = "mp4";
   state.exportQuality = "high";
+  if (!state.exportFps) state.exportFps = 60;
+
+  const FPS_LABELS = { 24: "Film look", 30: "Smaller file", 60: "Smoothest" };
+  const setText = (sel, text) => {
+    const el = document.querySelector(sel);
+    if (el) el.textContent = text;
+  };
+
+  function refreshDialog() {
+    const fps = fpsOf();
+    const W = state.canvasW + (state.canvasW % 2);
+    const H = state.canvasH + (state.canvasH % 2);
+    for (const q of Object.keys(QUALITY_BPP)) {
+      setText(`.quality-pill[data-quality="${q}"] .quality-pill-desc`, `${(bitrateFor(W, H, q, fps) / 1e6).toFixed(0)} Mbps`);
+    }
+    document.querySelectorAll(".fps-pill").forEach((p) => p.classList.toggle("selected", Number(p.dataset.fps) === fps));
+    const note = document.getElementById("gpu-note");
+    if (note) {
+      note.textContent = gpu.accelerated
+        ? `${W}×${H}, frame-exact · GPU: ${gpu.name}`
+        : `${W}×${H}, frame-exact · No GPU acceleration available; rendering on the CPU`;
+    }
+  }
+
+  // Adds the GPU line under the format pills and a "Frame rate" row after Quality,
+  // built from the Quality row's own markup so it matches.
+  function ensureDialogControls() {
+    if (!document.getElementById("gpu-note")) {
+      const note = document.createElement("div");
+      note.id = "gpu-note";
+      document.querySelector(".format-pills")?.parentElement?.appendChild(note);
+    }
+    if (document.getElementById("fps-section")) return;
+    const section = document.querySelector(".quality-pills")?.parentElement;
+    if (!section) return;
+    const fpsSection = section.cloneNode(false);
+    fpsSection.id = "fps-section";
+    const label = section.firstElementChild?.cloneNode(true);
+    if (label && !label.classList.contains("quality-pills")) {
+      label.textContent = "Frame rate";
+      fpsSection.appendChild(label);
+    }
+    const pills = document.createElement("div");
+    pills.className = "quality-pills";
+    pills.innerHTML = FPS_CHOICES.map(
+      (f) =>
+        `<div class="quality-pill fps-pill" data-fps="${f}"><div class="quality-pill-label">${f} fps</div>` +
+        `<div class="quality-pill-desc">${FPS_LABELS[f]}</div></div>`,
+    ).join("");
+    pills.addEventListener("click", (e) => {
+      const pill = e.target.closest(".fps-pill");
+      if (!pill) return;
+      state.exportFps = Number(pill.dataset.fps);
+      refreshDialog();
+    });
+    fpsSection.appendChild(pills);
+    section.after(fpsSection);
+  }
+
+  // The app's selectQuality clears "selected" on every .quality-pill, the fps pills included.
+  const originalSelectQuality = window.selectQuality;
+  window.selectQuality = function (...args) {
+    originalSelectQuality.apply(this, args);
+    refreshDialog();
+  };
 
   const originalOpen = window.openExportBanner;
   window.openExportBanner = function (...args) {
     originalOpen.apply(this, args);
-    const set = (sel, text) => {
-      const el = document.querySelector(sel);
-      if (el) el.textContent = text;
-    };
-    set("#fmt-mp4 .format-pill-desc", "H.264 · plays everywhere");
-    set("#mp4-badge", "Recommended");
-    set("#fmt-webm .format-pill-desc", "VP9 · for the web");
+    setText("#fmt-mp4 .format-pill-desc", "H.264 · plays everywhere");
+    setText("#mp4-badge", "Recommended");
+    setText("#fmt-webm .format-pill-desc", "VP9 · for the web");
     document.getElementById("webm-badge")?.remove();
-    const W = state.canvasW + (state.canvasW % 2);
-    const H = state.canvasH + (state.canvasH % 2);
-    for (const q of Object.keys(QUALITY_BPP)) {
-      set(`.quality-pill[data-quality="${q}"] .quality-pill-desc`, `${(bitrateFor(W, H, q) / 1e6).toFixed(0)} Mbps`);
-    }
+    ensureDialogControls();
     selectQuality(state.exportQuality);
-
-    let note = document.getElementById("gpu-note");
-    if (!note) {
-      note = document.createElement("div");
-      note.id = "gpu-note";
-      document.querySelector(".format-pills")?.parentElement?.appendChild(note);
-    }
-    note.textContent = gpu.accelerated
-      ? `${FPS} fps, frame-exact · GPU: ${gpu.name}`
-      : `${FPS} fps, frame-exact · No GPU acceleration available; rendering on the CPU`;
+    refreshDialog();
   };
 })();

@@ -3792,7 +3792,8 @@ input[type="number"]:focus { border-color: var(--accent); }
     <div class="res-group" id="res-group">
       <div class="res-btn active" data-res="720"  onclick="selectRes(this)">720p</div>
       <div class="res-btn"        data-res="1080" onclick="selectRes(this)">1080p</div>
-      <div class="res-btn"        data-res="1440" onclick="selectRes(this)">1440p</div>
+      <div class="res-btn"        data-res="1440" onclick="selectRes(this)">2K</div>
+      <div class="res-btn"        data-res="2160" onclick="selectRes(this)">4K</div>
     </div>
     <div id="size-readout">1280 × 720</div>
   </div>
@@ -4004,7 +4005,8 @@ input[type="number"]:focus { border-color: var(--accent); }
           <div class="bb-size-row">
             <div class="bb-res-btn active" data-res="720"  onclick="bbSelectRes(this)">720p</div>
             <div class="bb-res-btn"        data-res="1080" onclick="bbSelectRes(this)">1080p</div>
-            <div class="bb-res-btn"        data-res="1440" onclick="bbSelectRes(this)">1440p</div>
+            <div class="bb-res-btn"        data-res="1440" onclick="bbSelectRes(this)" title="2K (1440p)">2K</div>
+            <div class="bb-res-btn"        data-res="2160" onclick="bbSelectRes(this)" title="4K (2160p, Ultra HD)">4K</div>
           </div>
           <div class="bb-size-readout" id="bb-size-readout">1280 × 720</div>
         </div>
@@ -8050,9 +8052,9 @@ function toggleZigzag() {
 }
 // ── Canvas size picker ──────────────────────────────────────────────────────
 const CANVAS_SIZES = {
-  '16:9': { 720: [1280,720],  1080: [1920,1080],  1440: [2560,1440] },
-  '9:16': { 720: [720,1280],  1080: [1080,1920],  1440: [1440,2560] },
-  '1:1':  { 720: [720,720],   1080: [1080,1080],  1440: [1440,1440] },
+  '16:9': { 720: [1280,720],  1080: [1920,1080],  1440: [2560,1440], 2160: [3840,2160] },
+  '9:16': { 720: [720,1280],  1080: [1080,1920],  1440: [1440,2560], 2160: [2160,3840] },
+  '1:1':  { 720: [720,720],   1080: [1080,1080],  1440: [1440,1440], 2160: [2160,2160] },
 };
 let _currentRatio = '16:9';
 let _currentRes   = 720;
@@ -8074,9 +8076,8 @@ function _applyCanvasSizeImmediate() {
   const readout = document.getElementById('size-readout');
   if (readout) readout.textContent = `${w} × ${h}`;
 
-  // Rescale and re-center every layer to fit the new canvas.
-  // Each layer keeps its size proportional to the canvas it was on, then is
-  // centered so it never disappears off-screen.
+  // Rescale every layer to the new canvas, keeping its size proportional to the canvas
+  // it was on and its position relative to the canvas.
   const oldW = state.canvasW;
   const oldH = state.canvasH;
   if (state.layers.length && (oldW !== w || oldH !== h)) {
@@ -8105,11 +8106,14 @@ function _applyCanvasSizeImmediate() {
       
       const newW = Math.round(layer.w * s);
       const newH = Math.round(layer.h * s);
-      // Center on the new canvas
+      // Keep the layer's centre at the same relative spot (the layout survives a
+      // resolution change exactly), nudged back inside if it would leave the canvas.
+      const cx = ((layer.x + layer.w / 2) / oldW) * w;
+      const cy = ((layer.y + layer.h / 2) / oldH) * h;
       layer.w = newW;
       layer.h = newH;
-      layer.x = Math.round((w - newW) / 2);
-      layer.y = Math.round((h - newH) / 2);
+      layer.x = Math.round(Math.min(Math.max(cx - newW / 2, Math.min(0, w - newW)), Math.max(0, w - newW)));
+      layer.y = Math.round(Math.min(Math.max(cy - newH / 2, Math.min(0, h - newH)), Math.max(0, h - newH)));
     });
   }
 
@@ -9197,9 +9201,11 @@ function drawCustomHand(c, hx, hy, tipX, tipY, style) {
   }
   
   c.save();
-  const imageX = tipX - imageConfig.tipX;
-  const imageY = tipY - imageConfig.tipY;
-  c.drawImage(img, imageX, imageY, imageConfig.width, imageConfig.height);
+  // Hand art exists up to 1440p; above that (4K) scale the 1440p sprite to the canvas.
+  const k = Math.max(1, Math.max(state.canvasW, state.canvasH) / 2560);
+  const imageX = tipX - imageConfig.tipX * k;
+  const imageY = tipY - imageConfig.tipY * k;
+  c.drawImage(img, imageX, imageY, imageConfig.width * k, imageConfig.height * k);
   c.restore();
 }
 
