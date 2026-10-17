@@ -480,3 +480,48 @@
 .sh-swatches button.none { background: linear-gradient(135deg, transparent 45%, #e5484d 45%, #e5484d 55%, transparent 55%), var(--sidebar); }
 .sh-swatches button.active { box-shadow: 0 0 0 2px var(--sidebar), 0 0 0 3px var(--accent); }
 .sh-hint { margin-top: 10px; font-size: 10px; line-height: 1.45; color: var(--muted); }
+
+/* ── Tracks view (tracks.js) ──────────────────────────────────────────────── */
+.tk-switch { display: none; margin: 0 10px 0 0; align-self: center; }
+.tk-switch button { padding: 5px 10px; }
+#storyboard.show-timeline .tk-switch { display: flex; }
+.tk-view { display: none; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+#storyboard.show-timeline.tl-tracks .tl-view { display: none; }
+#storyboard.show-timeline.tl-tracks .tk-view { display: flex; }
+#storyboard.show-timeline.tl-tracks { align-items: stretch; }
+.tk-bar-top { display: flex; align-items: center; gap: 10px; font-size: 10.5px; color: var(--muted-hi); }
+.tk-reset { padding: 3px 9px; border: 1px solid var(--border-hi); border-radius: 999px; background: var(--sidebar); color: var(--text); font: 500 10px "Geist", sans-serif; cursor: pointer; }
+.tk-reset:hover { border-color: var(--accent); }
+.tk-scroll { position: relative; max-height: 190px; min-height: 70px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-ctl); background: var(--panel); scrollbar-width: thin; }
+.tk-canvas { position: relative; }
+.tk-ruler { position: sticky; top: 0; z-index: 3; height: 22px; background: var(--sidebar); border-bottom: 1px solid var(--border); }
+.tk-ruler-pad { position: sticky; left: 0; height: 100%; background: var(--sidebar); z-index: 2; border-right: 1px solid var(--border); }
+.tk-tick { position: absolute; top: 0; height: 100%; border-left: 1px solid var(--border); }
+.tk-tick span { position: absolute; left: 3px; top: 4px; font-size: 9px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tk-tick.major { border-left-color: var(--border-hi); }
+.tk-tick.major span { color: var(--muted-hi); font-weight: 600; }
+.tk-row { position: relative; height: 30px; border-bottom: 1px solid var(--border); }
+.tk-row.selected { background: var(--accent-lo); }
+.tk-label {
+  position: sticky; left: 0; z-index: 2; height: 100%;
+  display: flex; align-items: center; gap: 6px; padding: 0 8px;
+  background: var(--sidebar); border-right: 1px solid var(--border);
+  font-size: 10.5px; color: var(--text); cursor: pointer;
+}
+.tk-row.selected .tk-label { background: #f0f0f0; font-weight: 600; }
+.tk-label img { width: 22px; height: 16px; object-fit: contain; border-radius: 3px; background: var(--panel); flex-shrink: 0; }
+.tk-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-bar {
+  position: absolute; top: 4px; height: 21px;
+  display: flex; align-items: center; padding: 0 7px;
+  border-radius: 6px;
+  background: #e8e8ff; border: 1px solid #a5a6f6; color: #2e2f8a;
+  font-size: 9.5px; white-space: nowrap; overflow: hidden;
+  cursor: grab; touch-action: none; user-select: none;
+}
+.tk-bar:active { cursor: grabbing; }
+.tk-row.selected .tk-bar { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tk-bar.unknown { border-style: dashed; opacity: 0.75; }
+.tk-bar-text { overflow: hidden; text-overflow: ellipsis; }
+.tk-end { position: absolute; top: 22px; bottom: 0; width: 0; border-left: 2px dashed #e5484d; z-index: 1; pointer-events: none; }
+.tk-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #e5484d; z-index: 4; pointer-events: none; }

@@ -12,7 +12,8 @@
 
   // ── Reading the SVG: geometry in the SVG's own coordinates, cached per source ──
   const host = document.createElement("div");
-  host.style.cssText = "position:fixed;left:-20000px;top:0;visibility:hidden;pointer-events:none;";
+  // Hidden with opacity, not visibility: visibility is inherited, and hidden elements are skipped.
+  host.style.cssText = "position:fixed;left:-20000px;top:0;opacity:0;pointer-events:none;";
   document.body.appendChild(host);
   const cache = new Map();
 
@@ -109,14 +110,14 @@
     const parsed = layer.svgSource ? parse(layer.svgSource) : null;
     // Pixels drawn per animation step, scaled with the canvas so speed looks the same at 4K.
     const speed = layer.speed ?? 50;
-    const perStep = (3 + speed * 0.55) * resScale();
+    const perStep = (2 + speed * 0.34) * resScale();
     const kx = layer.w / (parsed?.width || 1);
     const ky = layer.h / (parsed?.height || 1);
     const items = (parsed?.elements || []).map((e) => ({ ...e, len: Math.max(8, e.length * Math.max(kx, ky)) }));
     slot._svg = { items, index: 0, done: 0, fill: 0, kx, ky, perStep, wipe: 0, fallback: !items.length };
   }
 
-  const FILL_STEPS = 10;
+  const FILL_STEPS = 14;
 
   function toCanvas(layer, s, x, y) {
     return [layer.x + x * s.kx, layer.y + y * s.ky];

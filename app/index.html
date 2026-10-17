@@ -5958,45 +5958,10 @@ function _generateNow() {
   _runGroupAt(0);
 }
 
-function _runGroupAt(gpos) {
-  if (!state._animGroups || gpos >= state._animGroups.length) { _allLayersDone(); return; }
-  state._groupPos = gpos;
-  const group     = state._animGroups[gpos];
-
-  // Pre-build the final image canvas for live reveal blending
-  const _imageRevealOn = document.getElementById('image-reveal')?.checked !== false;
-  const groupHasOutline = group.some(l => {
-    const s = l.animStyle || state.animStyle;
-    return s === 'illustfill' || s === 'outlinefill';
-  });
-  if (_imageRevealOn && groupHasOutline && _revealStyle !== 'instant') {
-    const fc = document.createElement('canvas');
-    fc.width = state.canvasW; fc.height = state.canvasH;
-    const fctx = fc.getContext('2d');
-    // Draw all layers that will be visible at end (bg + current group layers that have reveal on)
-    const _tmpBg = state.bgCanvas; state.bgCanvas = null;
-    fillBg(fctx);
-    state.bgCanvas = _tmpBg;
-    if (state.bgCanvas) fctx.drawImage(state.bgCanvas, 0, 0);
-    group.forEach(l => {
-      if (l.visible === false) return;
-      fctx.save();
-      fctx.globalAlpha = l.opacity ?? 1;
-      fctx.drawImage(l.img, l.x, l.y, l.w, l.h);
-      fctx.restore();
-    });
-    state._revealFinalCanvas = fc;
-  } else {
-    state._revealFinalCanvas = null;
-  }
-
-  // bgCanvas at this point already has all groups before gpos baked in (by finishAnim).
-  // For group 0 it is null, so we build a fresh one.
-  if (!state.bgCanvas) state.bgCanvas = _buildGroupBgCanvas(gpos);
-  const sharedBg = state.bgCanvas;
-
-  // Build a slot for every layer in this group
-  state._activeSlots = group.map(layer => {
+// Builds and sets up one animation slot per layer (shared by _runGroupAt and the tracks
+// scheduler in features/tracks.js, which starts layers one at a time).
+function _buildSlots(group, sharedBg) {
+  const slots = group.map(layer => {
     const sc = document.createElement('canvas');
     sc.width  = state.canvasW;
     sc.height = state.canvasH;
@@ -6024,7 +5989,7 @@ function _runGroupAt(gpos) {
   });
 
   // Pre-render and setup each slot individually
-  state._activeSlots.forEach(slot => {
+  slots.forEach(slot => {
     const _prevStyle = state.animStyle;
     state.animStyle  = slot._state.animStyle;
     state.activeLayerIndex = state.layers.indexOf(slot.layer);
@@ -6070,6 +6035,48 @@ function _runGroupAt(gpos) {
     setupStyle(); // writes all the tick-state into state.* from offscreen
     AnimationEngine._slotOut(slot);
   });
+  return slots;
+}
+
+function _runGroupAt(gpos) {
+  if (!state._animGroups || gpos >= state._animGroups.length) { _allLayersDone(); return; }
+  state._groupPos = gpos;
+  const group     = state._animGroups[gpos];
+
+  // Pre-build the final image canvas for live reveal blending
+  const _imageRevealOn = document.getElementById('image-reveal')?.checked !== false;
+  const groupHasOutline = group.some(l => {
+    const s = l.animStyle || state.animStyle;
+    return s === 'illustfill' || s === 'outlinefill';
+  });
+  if (_imageRevealOn && groupHasOutline && _revealStyle !== 'instant') {
+    const fc = document.createElement('canvas');
+    fc.width = state.canvasW; fc.height = state.canvasH;
+    const fctx = fc.getContext('2d');
+    // Draw all layers that will be visible at end (bg + current group layers that have reveal on)
+    const _tmpBg = state.bgCanvas; state.bgCanvas = null;
+    fillBg(fctx);
+    state.bgCanvas = _tmpBg;
+    if (state.bgCanvas) fctx.drawImage(state.bgCanvas, 0, 0);
+    group.forEach(l => {
+      if (l.visible === false) return;
+      fctx.save();
+      fctx.globalAlpha = l.opacity ?? 1;
+      fctx.drawImage(l.img, l.x, l.y, l.w, l.h);
+      fctx.restore();
+    });
+    state._revealFinalCanvas = fc;
+  } else {
+    state._revealFinalCanvas = null;
+  }
+
+  // bgCanvas at this point already has all groups before gpos baked in (by finishAnim).
+  // For group 0 it is null, so we build a fresh one.
+  if (!state.bgCanvas) state.bgCanvas = _buildGroupBgCanvas(gpos);
+  const sharedBg = state.bgCanvas;
+
+  // Build and set up a slot for every layer in this group
+  state._activeSlots = _buildSlots(group, sharedBg);
 
   // Restore offscreen to something valid for legacy checks
   offscreen = state._activeSlots[state._activeSlots.length - 1]?.offscreen ?? offscreen;
@@ -10849,6 +10856,7 @@ function obEnd() {
 <script src="features/svg-draw.js"></script>
 <script src="features/shapes.js"></script>
 <script src="features/timeline.js"></script>
+<script src="features/tracks.js"></script>
 <script src="features/presets.js"></script>
 <script src="features/layer-actions.js"></script>
 <script src="features/template-library.js"></script>

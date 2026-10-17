@@ -118,6 +118,7 @@
         transition: { ...copyFrom.transition },
         hold: copyFrom.hold,
         camera: { ...copyFrom.camera },
+        timing: copyFrom.timing,
       });
     } else {
       // A new scene starts with the background and camera of the one it follows.
@@ -166,7 +167,7 @@
     return {
       current,
       list: scenes.map((s, i) => {
-        const meta = { id: s.id, name: s.name, transition: s.transition, hold: s.hold, camera: s.camera };
+        const meta = { id: s.id, name: s.name, transition: s.transition, hold: s.hold, camera: s.camera, timing: s.timing };
         // The current scene's layers are saved by the project itself (savedState.layers).
         if (i === current) return { ...meta, live: true };
         return {
@@ -197,6 +198,7 @@
           transition: { ...DEFAULT_TRANSITION, ...(d.transition || {}) },
           hold: Number.isFinite(d.hold) ? d.hold : DEFAULT_HOLD,
           camera: { ...DEFAULT_CAMERA, ...(d.camera || {}) },
+          timing: d.timing === "tracks" ? "tracks" : "sequence",
           groups: d.groups || [],
           canvasBg: d.canvasBg || { type: "solid", val: "#ffffff" },
           selectedLayerId: d.selectedLayerId ?? null,

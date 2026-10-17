@@ -59,7 +59,7 @@
     let started = false;
     inkClock.enterManual();
     try {
-      state.layers = [{ ...layer, visible: true, animOrder: null, pauseAfter: undefined }];
+      state.layers = [{ ...layer, visible: true, animOrder: null, pauseAfter: undefined, startAt: 0 }];
       state.groups = [];
       restartAnim();
       let lastYield = inkClock.native.perfNow();
@@ -135,6 +135,7 @@
       redrawLayersOnCanvas();
       drawSelectionHandles();
       render();
+      window.dispatchEvent(new CustomEvent("inkplainer:timing-updated"));
     }
   }
 
