@@ -26,9 +26,10 @@ by NadirWeb-App and is now a fork that grows VideoScribe-style features on top o
 - **Camera** that follows the drawing: zooms and pans to each element, follows the pen across
   big ones, zooms out at the end. Per layer: auto, close-up or wide. Can be previewed in the editor.
 - **Timeline** of each scene: steps (reorder, play together, pauses) or **tracks**, where every
-  layer has its own start time on a time ruler, so things can overlap or wait; durations are
-  timed automatically.
-- **Audio:** background music and a voiceover per scene (import or record), in preview and export.
+  layer is a bar on a time ruler: drag it to change when it starts, drag its edges to change how
+  long it takes; things can overlap or wait. Durations are timed automatically.
+- **Audio:** music tracks and voiceover clips per scene (import or record), in the editor, the
+  movie preview and export.
 - 19 background presets (whiteboard, paper, notebook, graph, dot grid, chalkboard, blueprint,
   kraft, cork, gradients, …) and image backgrounds (cover, fit, stretch, tile, with a wash).
 
