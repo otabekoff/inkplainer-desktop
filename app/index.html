@@ -8513,6 +8513,7 @@ function _flattenOffscreenColors(canvas, maxColors) {
 // Calls the appropriate setup function from AnimationEngine based on current style
 function setupStyle() {
   switch(state.animStyle) {
+    case 'svg-draw': inkSvgDraw.setup(); break; // features/svg-draw.js
     case 'enter-move': case 'enter-fade': case 'enter-pop': case 'enter-drop':
       inkEntrances.setup(); break; // features/entrances.js
     case 'contour':         AnimationEngine.setupContour();                  break;
@@ -10845,6 +10846,7 @@ function obEnd() {
 <script src="features/layer-panel.js"></script>
 <script src="features/camera.js"></script>
 <script src="features/entrances.js"></script>
+<script src="features/svg-draw.js"></script>
 <script src="features/timeline.js"></script>
 <script src="features/presets.js"></script>
 <script src="features/layer-actions.js"></script>

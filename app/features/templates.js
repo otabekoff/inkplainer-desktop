@@ -49,7 +49,8 @@
     addLayer(img, def.name || `Illustration ${index + 1}`);
     const layer = state.layers[state.layers.length - 1];
     Object.assign(layer, { x: def.x, y: def.y, w: def.w, h: def.h, baseW: def.w, baseH: def.h, resizePct: 100 });
-    applyLayerSettings(layer, def, hand, "illustfill");
+    layer.svgSource = def.art; // drawn stroke by stroke (features/svg-draw.js)
+    applyLayerSettings(layer, def, hand, "svg-draw");
   }
 
   function applyLayerSettings(layer, def, hand, defaultAnim) {

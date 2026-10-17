@@ -1837,6 +1837,7 @@ function _tickSlot(slot) {
     case 'spec-vehicle': case 'spec-building': case 'spec-landscape':
     case 'spec-spiral': case 'spec-nature':
                           tickSpecialized(speed); break;
+    case 'svg-draw':      window.inkSvgDraw.tick(speed); break; // features/svg-draw.js
     case 'enter-move': case 'enter-fade': case 'enter-pop': case 'enter-drop':
                           window.inkEntrances.tick(speed); break; // features/entrances.js
     default:              tickScanner(speed);       break;
