@@ -1,21 +1,27 @@
-// Audio: background music for the whole movie and a voiceover per scene (imported, or
-// recorded with the microphone). Play movie plays them in sync; export mixes them offline
-// into one soundtrack (features/export.js). Saved with the project (IndexedDB keeps Blobs).
+// Audio: background music tracks for the whole movie and voiceover clips per scene
+// (imported, or recorded with the microphone). The editor's own Play plays the current scene's
+// audio, Play movie plays everything in sync, and export mixes it offline into one soundtrack
+// (features/export.js). Saved with the project (IndexedDB keeps the Blobs as they are).
 //
-//   music = { name, blob, volume, fadeIn, fadeOut, loop }
-//   voice (per scene id) = { name, blob, start, volume, extend }
-//     start: seconds after the scene's drawing begins; extend: keep the scene on screen
-//     until the voice has finished, so it is never cut off.
+//   music  = [{ id, name, blob, start, volume, fadeIn, fadeOut, loop }]  start: seconds into the movie
+//   voices = Map(scene id -> [{ id, name, blob, start, volume, extend }])
+//     start: seconds after the scene's drawing begins; extend: keep the scene on screen until
+//     the clip has finished, so it is never cut off.
 (() => {
-  let music = null;
-  const voices = new Map(); // scene id -> voice
+  let music = [];
+  const voices = new Map();
+  let nextClipId = 1;
+  const newId = () => nextClipId++;
 
   // ── Decoding (cached per Blob) ────────────────────────────────────────────
   let decoder = null;
   const buffers = new WeakMap();
   async function bufferOf(clip) {
     if (!clip?.blob) return null;
-    if (buffers.has(clip.blob)) return buffers.get(clip.blob);
+    if (buffers.has(clip.blob)) {
+      clip.duration ??= buffers.get(clip.blob).duration;
+      return buffers.get(clip.blob);
+    }
     decoder ??= new AudioContext();
     const buf = await decoder.decodeAudioData(await clip.blob.arrayBuffer());
     buffers.set(clip.blob, buf);
@@ -23,74 +29,49 @@
     return buf;
   }
 
-  const voiceOf = (scene) => (scene ? voices.get(scene.id) || null : null);
+  const clipsOf = (scene) => (scene ? voices.get(scene.id) || [] : []);
 
   // Seconds (from the start of the scene's drawing) the scene must at least last.
   function sceneMinEnd(scene) {
-    const v = voiceOf(scene);
-    if (!v || v.extend === false || !v.duration) return 0;
-    return (v.start || 0) + v.duration + 0.3;
+    let end = 0;
+    for (const c of clipsOf(scene)) if (c.extend !== false && c.duration) end = Math.max(end, (c.start || 0) + c.duration + 0.3);
+    return end;
   }
 
   // ── Persistence ───────────────────────────────────────────────────────────
   window.serializeAudio = () => ({
     music,
-    voices: [...voices.entries()].filter(([id]) => inkScenes.list.some((s) => s.id === id)),
+    voiceClips: [...voices.entries()].filter(([id, list]) => list.length && inkScenes.list.some((s) => s.id === id)),
   });
   window.addEventListener("inkplainer:project-loaded", (e) => {
     const saved = e.detail.savedState?.audio;
-    music = saved?.music?.blob ? saved.music : null;
     voices.clear();
-    for (const [id, v] of saved?.voices || []) if (v?.blob) voices.set(id, v);
-    // Durations are needed for scene lengths; decode in the background.
-    for (const clip of [music, ...voices.values()]) if (clip) bufferOf(clip).catch(() => {});
+    // Older projects: one music track ({ music }) and one voiceover per scene ({ voices }).
+    music = Array.isArray(saved?.music) ? saved.music.filter((m) => m?.blob) : saved?.music?.blob ? [saved.music] : [];
+    for (const [id, list] of saved?.voiceClips || []) voices.set(id, list.filter((c) => c?.blob));
+    for (const [id, v] of saved?.voices || []) if (v?.blob) voices.set(id, [...(voices.get(id) || []), v]);
+    for (const c of [...music, ...[...voices.values()].flat()]) {
+      c.id ??= newId();
+      nextClipId = Math.max(nextClipId, c.id + 1);
+      bufferOf(c).catch(() => {});
+    }
     setTimeout(refreshUI, 300);
   });
 
-  // ── Mixing (export) ───────────────────────────────────────────────────────
-  // sceneStarts: [{ scene, time }] in seconds; duration: the movie's length.
-  async function mix(duration, sceneStarts, sampleRate = 48000) {
-    const used = sceneStarts.filter(({ scene }) => voiceOf(scene));
-    if (!music && !used.length) return null;
-    const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * sampleRate)), sampleRate);
-    if (music) {
-      const buf = await bufferOf(music);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.loop = music.loop !== false;
-      const gain = ctx.createGain();
-      const vol = music.volume ?? 0.6;
-      const fadeIn = Math.min(music.fadeIn ?? 1, duration / 2);
-      const fadeOut = Math.min(music.fadeOut ?? 2, duration / 2);
-      gain.gain.setValueAtTime(fadeIn > 0 ? 0 : vol, 0);
-      if (fadeIn > 0) gain.gain.linearRampToValueAtTime(vol, fadeIn);
-      gain.gain.setValueAtTime(vol, Math.max(fadeIn, duration - fadeOut));
-      gain.gain.linearRampToValueAtTime(0, duration);
-      src.connect(gain).connect(ctx.destination);
-      src.start(0);
-    }
-    for (const { scene, time } of used) {
-      const v = voiceOf(scene);
-      const buf = await bufferOf(v);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      const gain = ctx.createGain();
-      gain.gain.value = v.volume ?? 1;
-      src.connect(gain).connect(ctx.destination);
-      src.start(time + (v.start || 0));
-    }
-    return ctx.startRendering();
-  }
+  // Undo: the audio of the moment (music and this scene's voiceovers) goes into each snapshot.
+  registerUndoExtra(
+    "audio",
+    () => ({ music: music.map((m) => ({ ...m })), scene: inkScenes.currentScene?.id, voices: clipsOf(inkScenes.currentScene).map((c) => ({ ...c })) }),
+    (saved) => {
+      music = saved.music.map((m) => ({ ...m }));
+      if (saved.scene != null) voices.set(saved.scene, saved.voices.map((c) => ({ ...c })));
+      refreshUI();
+      window.inkTracks?.render();
+    },
+  );
 
-  // ── Live playback (Play movie) ────────────────────────────────────────────
-  // prepare() decodes everything first; startPlayback() is called on the first frame shown,
-  // so the audio clock and the picture start together.
-  let live = null; // { ctx, t0, nodes }
-  let queued = [];
-  async function prepare() {
-    for (const clip of [music, ...voices.values()]) if (clip) await bufferOf(clip).catch(() => {});
-  }
-  function play(ctx, clip, at, gainValue) {
+  // ── Scheduling clips on a context ─────────────────────────────────────────
+  function schedule(ctx, clip, at, gainValue, nodes) {
     const buf = buffers.get(clip.blob);
     if (!buf) return null;
     const src = ctx.createBufferSource();
@@ -99,45 +80,141 @@
     gain.gain.value = gainValue;
     src.connect(gain).connect(ctx.destination);
     src.start(Math.max(ctx.currentTime, at));
-    live.nodes.push(src);
+    nodes?.push(src);
     return { src, gain };
+  }
+  function scheduleMusic(ctx, track, t0, nodes, endAt) {
+    const at = t0 + (track.start || 0);
+    const n = schedule(ctx, track, at, 0, nodes);
+    if (!n) return null;
+    n.src.loop = track.loop !== false;
+    const vol = track.volume ?? 0.6;
+    const fadeIn = Math.max(0.01, track.fadeIn ?? 1);
+    n.gain.gain.setValueAtTime(0, at);
+    n.gain.gain.linearRampToValueAtTime(vol, at + fadeIn);
+    if (endAt != null) {
+      const fadeOut = Math.min(track.fadeOut ?? 2, Math.max(0.01, endAt - at - fadeIn));
+      n.gain.gain.setValueAtTime(vol, Math.max(at + fadeIn, endAt - fadeOut));
+      n.gain.gain.linearRampToValueAtTime(0, endAt);
+      n.src.stop(endAt + 0.05);
+    } else if (!n.src.loop) {
+      const end = at + n.src.buffer.duration;
+      const fadeOut = Math.min(track.fadeOut ?? 2, n.src.buffer.duration / 2);
+      n.gain.gain.setValueAtTime(vol, end - fadeOut);
+      n.gain.gain.linearRampToValueAtTime(0, end);
+    }
+    return n;
+  }
+
+  // ── Mixing (export) ───────────────────────────────────────────────────────
+  // sceneStarts: [{ scene, time }] in seconds; duration: the movie's length.
+  async function mix(duration, sceneStarts, sampleRate = 48000) {
+    const used = sceneStarts.filter(({ scene }) => clipsOf(scene).length);
+    if (!music.length && !used.length) return null;
+    for (const c of [...music, ...used.flatMap(({ scene }) => clipsOf(scene))]) await bufferOf(c);
+    const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * sampleRate)), sampleRate);
+    for (const track of music) if ((track.start || 0) < duration) scheduleMusic(ctx, track, 0, null, duration);
+    for (const { scene, time } of used) for (const c of clipsOf(scene)) schedule(ctx, c, time + (c.start || 0), c.volume ?? 1);
+    return ctx.startRendering();
+  }
+
+  // ── Live playback: Play movie ─────────────────────────────────────────────
+  // prepare() decodes everything first; startPlayback() is called on the first frame shown,
+  // so the audio clock and the picture start together.
+  let live = null; // { ctx, t0, nodes }
+  let queued = [];
+  async function prepare() {
+    for (const c of [...music, ...[...voices.values()].flat()]) await bufferOf(c).catch(() => {});
   }
   function startPlayback() {
     stopPlayback();
-    if (!music && !voices.size) return;
+    if (!music.length && !voices.size) return;
     const ctx = new AudioContext();
     live = { ctx, t0: ctx.currentTime + 0.02, nodes: [] };
-    if (music) {
-      const n = play(ctx, music, live.t0, 0);
-      if (n) {
-        n.src.loop = music.loop !== false;
-        n.gain.gain.setValueAtTime(0, live.t0);
-        n.gain.gain.linearRampToValueAtTime(music.volume ?? 0.6, live.t0 + Math.max(0.01, music.fadeIn ?? 1));
-      }
-    }
+    for (const track of music) scheduleMusic(ctx, track, live.t0, live.nodes);
     for (const [scene, time] of queued) sceneStarted(scene, time);
     queued = [];
   }
   // A scene's drawing starts `time` seconds into the movie.
   function sceneStarted(scene, time) {
-    const v = voiceOf(scene);
-    if (!v) return;
+    if (!clipsOf(scene).length) return;
     if (!live) return void queued.push([scene, time]);
-    play(live.ctx, v, live.t0 + time + (v.start || 0), v.volume ?? 1);
+    for (const c of clipsOf(scene)) schedule(live.ctx, c, live.t0 + time + (c.start || 0), c.volume ?? 1, live.nodes);
   }
   function stopPlayback() {
     queued = [];
     if (!live) return;
-    for (const n of live.nodes) {
+    stopNodes(live);
+    live = null;
+  }
+  function stopNodes(session) {
+    for (const n of session.nodes) {
       try {
         n.stop();
       } catch {
         /* already stopped */
       }
     }
-    live.ctx.close();
-    live = null;
+    session.ctx.close();
   }
+
+  // ── Live playback: the editor's own Play (the current scene) ──────────────
+  let editor = null; // { ctx, t0, nodes, musicGains, fading }
+  async function startEditorAudio() {
+    stopEditorAudio();
+    const clips = clipsOf(inkScenes.currentScene);
+    if (!music.length && !clips.length) return;
+    const ctx = new AudioContext();
+    const session = { ctx, t0: ctx.currentTime + 0.02, nodes: [], musicGains: [], fading: false };
+    editor = session;
+    await prepare();
+    if (editor !== session) return ctx.close();
+    session.t0 = ctx.currentTime + 0.02;
+    // Music from its own beginning (this is the scene on its own, not the whole movie).
+    for (const track of music) {
+      const n = scheduleMusic(ctx, { ...track, start: 0 }, session.t0, session.nodes);
+      if (n) session.musicGains.push({ gain: n.gain, volume: track.volume ?? 0.6 });
+    }
+    for (const c of clips) schedule(ctx, c, session.t0 + (c.start || 0), c.volume ?? 1, session.nodes);
+  }
+  function stopEditorAudio() {
+    if (!editor) return;
+    stopNodes(editor);
+    editor = null;
+  }
+  // Fade the music out once the scene's animation has finished (voiceovers play to their end).
+  (function watchEditor() {
+    if (editor && state.done && !editor.fading) {
+      editor.fading = true;
+      const now = editor.ctx.currentTime;
+      for (const { gain } of editor.musicGains) {
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(gain.gain.value, now);
+        gain.gain.linearRampToValueAtTime(0, now + 1.5);
+      }
+    }
+    inkClock.native.raf(watchEditor);
+  })();
+  const originalGenerateNow = window._generateNow;
+  window._generateNow = function (...args) {
+    const r = originalGenerateNow.apply(this, args);
+    if (!inkClock.manual && !window.inkPlayer?.playing) startEditorAudio();
+    return r;
+  };
+  const originalReset = window.resetAnim;
+  window.resetAnim = function (...args) {
+    if (!inkClock.manual) stopEditorAudio();
+    return originalReset.apply(this, args);
+  };
+  const originalToggle = window.togglePlay;
+  window.togglePlay = function (...args) {
+    const r = originalToggle.apply(this, args);
+    if (editor && !state.done) {
+      if (state.playing) editor.ctx.resume();
+      else editor.ctx.suspend();
+    }
+    return r;
+  };
 
   // ── Panel ─────────────────────────────────────────────────────────────────
   const board = document.getElementById("storyboard");
@@ -153,52 +230,48 @@
   panel.id = "audio-panel";
   panel.innerHTML = `
     <div class="ap-title">Audio</div>
-    <div class="ap-section">Background music <span>whole movie</span></div>
-    <div class="ap-clip" data-kind="music"></div>
-    <div class="ap-opts" data-for="music">
-      <label class="ap-field"><span>Volume</span><input type="range" min="0" max="1" step="0.05" data-k="volume"><b></b></label>
-      <label class="ap-field"><span>Fade in</span><input type="range" min="0" max="5" step="0.25" data-k="fadeIn"><b></b></label>
-      <label class="ap-field"><span>Fade out</span><input type="range" min="0" max="8" step="0.25" data-k="fadeOut"><b></b></label>
-      <label class="ap-check"><input type="checkbox" data-k="loop"> Loop if the movie is longer</label>
-    </div>
+    <div class="ap-section">Music <span>whole movie</span></div>
+    <div class="ap-list" data-kind="music"></div>
+    <div class="ap-add" data-kind="music"></div>
     <div class="ap-section">Voiceover <span class="ap-scene"></span></div>
-    <div class="ap-clip" data-kind="voice"></div>
-    <div class="ap-opts" data-for="voice">
-      <label class="ap-field"><span>Starts after</span><input type="range" min="0" max="10" step="0.1" data-k="start"><b></b></label>
-      <label class="ap-field"><span>Volume</span><input type="range" min="0" max="1.5" step="0.05" data-k="volume"><b></b></label>
-      <label class="ap-check"><input type="checkbox" data-k="extend"> Keep the scene on until the voice ends</label>
-    </div>`;
+    <div class="ap-list" data-kind="voice"></div>
+    <div class="ap-add" data-kind="voice"></div>`;
   document.body.appendChild(panel);
   const picker = document.createElement("input");
   picker.type = "file";
   picker.accept = "audio/*";
+  picker.multiple = true;
   picker.hidden = true;
   document.body.appendChild(picker);
   let pickingFor = null;
 
   const fmt = (s) => (s == null ? "" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
+  const icon = (p) => `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
+  const PLAY = '<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>';
+  const STOP = '<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/>';
+  const TRASH = '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>';
 
-  let preview = null;
+  let preview = null; // { id, stop }
   async function previewClip(clip) {
-    if (preview) {
-      preview.stop();
-      preview = null;
-      return refreshUI();
-    }
+    const same = preview?.id === clip.id;
+    preview?.stop();
+    preview = null;
+    if (same) return refreshUI();
     const ctx = new AudioContext();
     const src = ctx.createBufferSource();
     src.buffer = await bufferOf(clip);
     src.connect(ctx.destination);
     src.start();
-    preview = { stop: () => { try { src.stop(); } catch {} ctx.close(); } };
+    const p = { id: clip.id, stop: () => { try { src.stop(); } catch {} ctx.close(); } };
+    preview = p;
     src.onended = () => {
-      if (preview) preview = null;
+      if (preview === p) preview = null;
       refreshUI();
     };
     refreshUI();
   }
 
-  // Microphone recording for the current scene's voiceover.
+  // Microphone recording, as a new voiceover clip in the current scene.
   let recorder = null;
   async function toggleRecord() {
     if (recorder) return recorder.stop();
@@ -218,106 +291,118 @@
       clearInterval(tick);
       stream.getTracks().forEach((t) => t.stop());
       recorder = null;
-      const blob = new Blob(chunks, { type: "audio/webm" });
-      await setVoice({ name: `Recording ${new Date().toLocaleTimeString()}`, blob });
+      await addVoice({ name: `Recording ${new Date().toLocaleTimeString()}`, blob: new Blob(chunks, { type: "audio/webm" }) });
     };
     mr.start(250);
     refreshUI(0);
   }
 
-  async function setMusic(clip) {
-    music = clip ? { volume: 0.6, fadeIn: 1, fadeOut: 2, loop: true, ...music, ...clip } : null;
-    if (music) await bufferOf(music).catch(() => showToast("That audio file could not be read"));
-    scheduleAutoSave();
-    refreshUI();
+  async function addMusic(clip) {
+    pushUndoSnapshot();
+    const track = { id: newId(), start: 0, volume: 0.6, fadeIn: 1, fadeOut: 2, loop: true, ...clip };
+    music.push(track);
+    await bufferOf(track).catch(() => showToast("That audio file could not be read"));
+    changed();
   }
-  async function setVoice(clip) {
+  async function addVoice(clip) {
     const scene = inkScenes.currentScene;
     if (!scene) return;
-    if (!clip) voices.delete(scene.id);
-    else {
-      const v = { start: 0, volume: 1, extend: true, ...voices.get(scene.id), ...clip };
-      voices.set(scene.id, v);
-      await bufferOf(v).catch(() => showToast("That audio file could not be read"));
-    }
+    pushUndoSnapshot();
+    const list = clipsOf(scene);
+    const after = list.reduce((t, c) => Math.max(t, (c.start || 0) + (c.duration || 0)), 0);
+    const v = { id: newId(), start: list.length ? Math.round((after + 0.3) * 10) / 10 : 0, volume: 1, extend: true, ...clip };
+    voices.set(scene.id, [...list, v]);
+    await bufferOf(v).catch(() => showToast("That audio file could not be read"));
+    changed();
+  }
+  function removeClip(kind, id) {
+    pushUndoSnapshot();
+    if (kind === "music") music = music.filter((m) => m.id !== id);
+    else voices.set(inkScenes.currentScene.id, clipsOf(inkScenes.currentScene).filter((c) => c.id !== id));
+    changed();
+  }
+  function changed() {
     scheduleAutoSave();
     refreshUI();
     window.inkTracks?.render();
   }
 
-  picker.addEventListener("change", () => {
-    const file = picker.files?.[0];
+  picker.addEventListener("change", async () => {
+    const files = [...(picker.files || [])];
     picker.value = "";
-    if (!file) return;
-    const clip = { name: file.name.replace(/\.[^.]+$/, ""), blob: file };
-    if (pickingFor === "music") setMusic(clip);
-    else setVoice(clip);
+    for (const file of files) {
+      const clip = { name: file.name.replace(/\.[^.]+$/, ""), blob: file };
+      if (pickingFor === "music") await addMusic(clip);
+      else await addVoice(clip);
+    }
   });
 
-  function clipRow(kind, clip, recording) {
-    const icon = (p) => `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
-    if (recording != null) {
-      return `<div class="ap-rec"><span class="ap-rec-dot"></span>Recording ${fmt(recording)}</div><button type="button" data-act="record" class="ap-primary">Stop</button>`;
-    }
-    if (!clip) {
-      return `<button type="button" data-act="add">${icon('<path d="M12 5v14M5 12h14"/>')} Add ${kind === "music" ? "music" : "audio file"}…</button>` +
-        (kind === "voice" ? `<button type="button" data-act="record">${icon('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>')} Record</button>` : "");
-    }
-    return `<div class="ap-name" title="${clip.name}">${clip.name}<em>${fmt(clip.duration)}</em></div>
-      <button type="button" data-act="play" title="Listen">${preview ? icon('<rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/>') : icon('<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>')}</button>
-      <button type="button" data-act="add" title="Replace">${icon('<path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/>')}</button>
-      <button type="button" data-act="remove" title="Remove">${icon('<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>')}</button>`;
+  const MUSIC_FIELDS = [["start", "Starts at", 0, 60, 0.5, "s"], ["volume", "Volume", 0, 1, 0.05, "%"], ["fadeIn", "Fade in", 0, 5, 0.25, "s"], ["fadeOut", "Fade out", 0, 8, 0.25, "s"]];
+  const VOICE_FIELDS = [["start", "Starts after", 0, 20, 0.1, "s"], ["volume", "Volume", 0, 1.5, 0.05, "%"]];
+  function clipCard(kind, c) {
+    const fields = (kind === "music" ? MUSIC_FIELDS : VOICE_FIELDS)
+      .map(([k, label, min, max, step, unit]) => {
+        const v = c[k] ?? 0;
+        const shown = unit === "%" ? `${Math.round(v * 100)}%` : `${Number(v).toFixed(step < 0.25 ? 1 : 2).replace(/\.?0+$/, "") || 0}s`;
+        return `<label class="ap-field"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${v}" data-k="${k}"><b>${shown}</b></label>`;
+      })
+      .join("");
+    const check = kind === "music"
+      ? `<label class="ap-check"><input type="checkbox" data-k="loop" ${c.loop !== false ? "checked" : ""}> Loop to the end of the movie</label>`
+      : `<label class="ap-check"><input type="checkbox" data-k="extend" ${c.extend !== false ? "checked" : ""}> Keep the scene on until it ends</label>`;
+    return `<div class="ap-card" data-id="${c.id}">
+      <div class="ap-card-head"><div class="ap-name" title="${c.name}">${c.name}<em>${fmt(c.duration)}</em></div>
+        <button type="button" data-act="play" title="Listen">${icon(preview?.id === c.id ? STOP : PLAY)}</button>
+        <button type="button" data-act="remove" title="Remove">${icon(TRASH)}</button></div>
+      ${fields}${check}</div>`;
   }
 
   function refreshUI(recordingSeconds) {
     const scene = inkScenes.currentScene;
-    const v = voiceOf(scene);
-    const index = inkScenes.current + 1;
-    panel.querySelector(".ap-scene").textContent = `scene ${index}${scene?.name ? ` · ${scene.name}` : ""}`;
-    panel.querySelector('[data-kind="music"]').innerHTML = clipRow("music", music);
-    panel.querySelector('[data-kind="voice"]').innerHTML = clipRow("voice", v, recorder ? recordingSeconds ?? 0 : null);
-    for (const [kind, clip] of [["music", music], ["voice", v]]) {
-      const opts = panel.querySelector(`.ap-opts[data-for="${kind}"]`);
-      opts.style.display = clip ? "" : "none";
-      if (!clip) continue;
-      for (const input of opts.querySelectorAll("input")) {
-        const k = input.dataset.k;
-        if (input.type === "checkbox") input.checked = clip[k] !== false;
-        else {
-          input.value = clip[k] ?? 0;
-          const b = input.nextElementSibling;
-          if (b) b.textContent = k === "volume" ? `${Math.round(clip[k] * 100)}%` : `${Number(clip[k]).toFixed(k === "start" ? 1 : 2).replace(/0$/, "")}s`;
-        }
-      }
-    }
-    button.classList.toggle("has-audio", !!music || voices.size > 0);
+    panel.querySelector(".ap-scene").textContent = `scene ${inkScenes.current + 1}${scene?.name ? ` · ${scene.name}` : ""}`;
+    panel.querySelector('.ap-list[data-kind="music"]').innerHTML = music.map((m) => clipCard("music", m)).join("");
+    panel.querySelector('.ap-list[data-kind="voice"]').innerHTML = clipsOf(scene).map((c) => clipCard("voice", c)).join("");
+    panel.querySelector('.ap-add[data-kind="music"]').innerHTML = `<button type="button" data-act="add">${icon('<path d="M12 5v14M5 12h14"/>')} Add music…</button>`;
+    panel.querySelector('.ap-add[data-kind="voice"]').innerHTML = recorder
+      ? `<div class="ap-rec"><span class="ap-rec-dot"></span>Recording ${fmt(recordingSeconds ?? 0)}</div><button type="button" data-act="record" class="ap-primary">Stop</button>`
+      : `<button type="button" data-act="add">${icon('<path d="M12 5v14M5 12h14"/>')} Add audio file…</button>` +
+        `<button type="button" data-act="record">${icon('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>')} Record</button>`;
+    button.classList.toggle("has-audio", music.length > 0 || [...voices.values()].some((l) => l.length));
     markScenes();
   }
 
+  const clipBy = (kind, id) => (kind === "music" ? music : clipsOf(inkScenes.currentScene)).find((c) => c.id === id);
   panel.addEventListener("click", (e) => {
     const b = e.target.closest("[data-act]");
     if (!b) return;
-    const kind = b.closest("[data-kind]").dataset.kind;
-    const clip = kind === "music" ? music : voiceOf(inkScenes.currentScene);
+    const kind = b.closest("[data-kind]")?.dataset.kind;
+    const id = Number(b.closest(".ap-card")?.dataset.id);
     if (b.dataset.act === "add") {
       pickingFor = kind;
       picker.click();
-    } else if (b.dataset.act === "remove") {
-      if (kind === "music") setMusic(null);
-      else setVoice(null);
-    } else if (b.dataset.act === "play" && clip) previewClip(clip);
-    else if (b.dataset.act === "record") toggleRecord();
+    } else if (b.dataset.act === "remove") removeClip(kind, id);
+    else if (b.dataset.act === "play") {
+      const c = clipBy(kind, id);
+      if (c) previewClip(c);
+    } else if (b.dataset.act === "record") toggleRecord();
   });
+  // One undo step per slider drag or checkbox click.
+  panel.addEventListener("pointerdown", (e) => e.target.matches?.("input[type=range]") && pushUndoSnapshot());
+  panel.addEventListener("click", (e) => e.target.matches?.("input[type=checkbox]") && pushUndoSnapshot(), true);
   panel.addEventListener("input", (e) => {
     const input = e.target.closest("input[data-k]");
     if (!input) return;
-    const kind = input.closest("[data-for]").dataset.for;
-    const clip = kind === "music" ? music : voiceOf(inkScenes.currentScene);
+    const kind = input.closest("[data-kind]").dataset.kind;
+    const clip = clipBy(kind, Number(input.closest(".ap-card").dataset.id));
     if (!clip) return;
     clip[input.dataset.k] = input.type === "checkbox" ? input.checked : Number(input.value);
+    const b = input.nextElementSibling;
+    if (b?.tagName === "B") {
+      const k = input.dataset.k;
+      b.textContent = k === "volume" ? `${Math.round(clip[k] * 100)}%` : `${clip[k]}s`;
+    }
     scheduleAutoSave();
-    refreshUI();
-    if (kind === "voice") window.inkTracks?.render();
+    window.inkTracks?.render();
   });
 
   function openPanel() {
@@ -333,13 +418,14 @@
     if (panel.classList.contains("show") && !panel.contains(e.target) && !button.contains(e.target) && !recorder) panel.classList.remove("show");
   });
   window.addEventListener("inkplainer:scene-changed", () => refreshUI());
+
   // Scene cards are rebuilt on every edit; keep their voiceover mark.
   const strip = board.querySelector(".sb-strip");
   if (strip) new MutationObserver(() => markScenes()).observe(strip, { childList: true });
   function markScenes() {
     document.querySelectorAll(".sb-scene").forEach((card) => {
       const s = inkScenes.list[Number(card.dataset.index)];
-      card.classList.toggle("has-voice", !!(s && voices.has(s.id)));
+      card.classList.toggle("has-voice", !!(s && clipsOf(s).length));
     });
   }
 
@@ -347,17 +433,20 @@
     get music() {
       return music;
     },
-    voiceOf,
-    setVoice,
-    setMusic,
+    clipsOf,
+    addMusic,
+    addVoice,
     sceneMinEnd,
     mix,
     prepare,
     startPlayback,
     sceneStarted,
     stopPlayback,
-    hasAudio: () => !!music || voices.size > 0,
+    hasAudio: () => music.length > 0 || [...voices.values()].some((l) => l.length),
     refreshUI,
+    get editorPlaying() {
+      return !!editor;
+    },
   };
   refreshUI();
 })();

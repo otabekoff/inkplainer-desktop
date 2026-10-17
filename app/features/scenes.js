@@ -460,6 +460,24 @@
 
   board.querySelector(".sb-play").addEventListener("click", () => window.inkPlayer?.play());
 
+  // Undo covers the scene's own settings too (steps/tracks, camera, transition, hold, name).
+  registerUndoExtra(
+    "scene",
+    () => {
+      const sc = scenes[current];
+      return sc && { id: sc.id, name: sc.name, hold: sc.hold, timing: sc.timing, camera: { ...sc.camera }, transition: { ...sc.transition } };
+    },
+    (saved) => {
+      const sc = saved && scenes.find((x) => x.id === saved.id);
+      if (!sc) return;
+      Object.assign(sc, { name: saved.name, hold: saved.hold, timing: saved.timing, camera: { ...saved.camera }, transition: { ...saved.transition } });
+      render();
+      window.dispatchEvent(new CustomEvent("inkplainer:scene-changed", { detail: { index: current } }));
+    },
+  );
+  pop.querySelector(".sp-name").addEventListener("focus", () => pushUndoSnapshot());
+  pop.addEventListener("pointerdown", (e) => e.target.matches?.("input[type=range], .sp-grid button") && pushUndoSnapshot());
+
   // ── Public API (features/movie.js, player.js, export.js) ───────────────────
   window.inkScenes = {
     TRANSITIONS,

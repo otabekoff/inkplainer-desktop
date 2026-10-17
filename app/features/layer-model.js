@@ -92,3 +92,33 @@ async function deserializeLayers(list) {
   const layers = await Promise.all((list || []).map(deserializeLayer));
   return layers.filter(Boolean);
 }
+
+// ── Extra state in undo snapshots ────────────────────────────────────────────
+// Modules add their own data to every undo snapshot (scene settings, audio, …):
+//   registerUndoExtra(key, save, restore)
+const _undoExtras = new Map();
+function registerUndoExtra(key, save, restore) {
+  _undoExtras.set(key, { save, restore });
+}
+function collectUndoExtras() {
+  const out = {};
+  for (const [key, { save }] of _undoExtras) {
+    try {
+      out[key] = save();
+    } catch (err) {
+      console.error(`undo extra ${key}:`, err);
+    }
+  }
+  return out;
+}
+function restoreUndoExtras(saved) {
+  if (!saved) return;
+  for (const [key, { restore }] of _undoExtras) {
+    if (!(key in saved)) continue;
+    try {
+      restore(saved[key]);
+    } catch (err) {
+      console.error(`undo extra ${key}:`, err);
+    }
+  }
+}

@@ -19,7 +19,10 @@
     return originalDrawHand.call(this, c, tipX, tipY, ...rest);
   };
 
-  const settings = () => inkScenes.currentScene?.camera || { mode: "off", zoom: 1.8, ending: "wide" };
+  // opening: "close" starts the scene already framed on its first element (so a transition in
+  // reveals that shot and the camera only moves between elements); "wide" zooms in from the full view.
+  const settings = () => ({ opening: "close", ...(inkScenes.currentScene?.camera || { mode: "off", zoom: 1.8, ending: "wide" }) });
+  let snapToFirst = false;
 
   let cam = null; // { cx, cy, w } in canvas pixels; height follows the canvas aspect
   let lastTime = null;
@@ -93,9 +96,15 @@
   function update(time) {
     const dt = lastTime === null ? 0 : Math.max(0, time - lastTime);
     lastTime = time;
-    const t = target() || lastTarget || full();
+    const found = target();
+    const t = found || lastTarget || full();
     lastTarget = t;
     if (!cam) cam = full();
+    if (snapToFirst && found) {
+      cam = { ...found };
+      snapToFirst = false;
+      return;
+    }
     const k = 1 - Math.exp(-dt / (MOVE_TIME / 3));
     cam.cx += (t.cx - cam.cx) * k;
     cam.cy += (t.cy - cam.cy) * k;
@@ -108,7 +117,8 @@
       return settings().mode === "follow";
     },
     beginScene() {
-      cam = full(); // each scene starts on the whole picture and moves in
+      cam = full();
+      snapToFirst = settings().opening !== "wide";
       lastTime = null;
       lastTarget = null;
     },
@@ -212,6 +222,10 @@
         <button type="button" data-mode="off" title="The whole canvas, no camera moves">Off</button>
         <button type="button" data-mode="follow" title="Zoom and pan to what is being drawn (Play movie / export)">Follow drawing</button>
       </div>
+      <div class="ink-seg bb-camera-opening" title="How the camera starts the scene">
+        <button type="button" data-opening="close" title="Start already framed on the first element">On first element</button>
+        <button type="button" data-opening="wide" title="Start on the whole picture and zoom in">Zoom in from wide</button>
+      </div>
       <div class="bb-sliders bb-camera-opts">
         <div class="bb-slider-row">
           <span style="width:38px;flex-shrink:0;">Zoom</span>
@@ -229,6 +243,8 @@
     const sync = () => {
       const s = settings();
       sec.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("active", b.dataset.mode === s.mode));
+      sec.querySelectorAll("[data-opening]").forEach((b) => b.classList.toggle("active", b.dataset.opening === s.opening));
+      sec.querySelector(".bb-camera-opening").classList.toggle("disabled", s.mode === "off");
       sec.querySelector(".bb-camera-opts").classList.toggle("disabled", s.mode === "off");
       sec.querySelector(".bb-camera-tip").style.display = s.mode === "follow" && Math.min(state.canvasW, state.canvasH) <= 1080 ? "" : "none";
       zoom.value = s.zoom;
@@ -239,6 +255,7 @@
     const edit = (patch) => {
       const scene = inkScenes.currentScene;
       if (!scene) return;
+      if (!editing) pushUndoSnapshot();
       scene.camera = { ...settings(), ...patch };
       sync();
       scheduleAutoSave();
@@ -246,7 +263,16 @@
     sec.addEventListener("click", (e) => {
       const b = e.target.closest("[data-mode]");
       if (b) edit({ mode: b.dataset.mode });
+      const o = e.target.closest("[data-opening]");
+      if (o) edit({ opening: o.dataset.opening });
     });
+    // One undo step per zoom drag.
+    let editing = false;
+    zoom.addEventListener("pointerdown", () => {
+      pushUndoSnapshot();
+      editing = true;
+    });
+    zoom.addEventListener("change", () => (editing = false));
     zoom.addEventListener("input", () => edit({ zoom: Number(zoom.value) }));
     ending.addEventListener("change", () => edit({ ending: ending.checked ? "wide" : "stay" }));
     const previewBox = sec.querySelector("#camera-preview");

@@ -4908,6 +4908,7 @@ function _serializeState() {
     selectedLayerId: state.selectedLayerId,
     groups: JSON.parse(JSON.stringify(state.groups || [])),
     layers: (state.layers || []).map(serializeLayer),
+    extras: collectUndoExtras(), // scene settings, audio, … (features/layer-model.js)
   };
 }
 
@@ -4987,6 +4988,8 @@ function _applySnapshot(snap, label) {
   const sizeText = `${state.canvasW} × ${state.canvasH}`;
   const tbSz = document.getElementById('topbar-size-display');
   if (tbSz) tbSz.textContent = sizeText;
+
+  restoreUndoExtras(snap.extras); // scene settings, audio, … (features/layer-model.js)
 
   // Restore layers asynchronously (same pattern as loadProject)
   if (!snap.layers || snap.layers.length === 0) {

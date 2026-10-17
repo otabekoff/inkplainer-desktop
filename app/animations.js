@@ -1855,9 +1855,26 @@ function _tickAllSlots() {
 
   state._activeSlots.forEach(slot => {
     if (slot.done) return;
-    _slotIn(slot);
-    _tickSlot(slot);
-    _slotOut(slot);
+    // A layer set to a duration plays faster or slower (slot._rate, features/tracks.js): it
+    // runs as many steps this frame as its rate adds up to. The hand is drawn once, at the
+    // last position, so several steps in one frame never leave several hands.
+    slot._acc = (slot._acc || 0) + (slot._rate || 1);
+    // Frames that step start from no hand (a style may stop showing it); frames that skip
+    // keep the last one, so a slowed layer's hand does not flicker.
+    if (slot._acc >= 1) slot._lastHand = null;
+    state._deferHand = true;
+    while (slot._acc >= 1 && !slot.done) {
+      slot._acc -= 1;
+      _slotIn(slot);
+      _tickSlot(slot);
+      _slotOut(slot);
+    }
+    state._deferHand = false;
+    if (!slot.done && slot._lastHand) {
+      _slotIn(slot);
+      window.drawHand(...slot._lastHand);
+      _slotOut(slot);
+    }
   });
 
   hctx.clearRect = _origClear; // restore

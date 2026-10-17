@@ -578,3 +578,36 @@
 .ap-field input { flex: 1; }
 .ap-field b { width: 40px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text); }
 .ap-check { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted-hi); }
+
+/* ── One panel under the canvas: Settings · Scenes · Timeline (timeline.js) ── */
+#storyboard > #bottom-bar { display: none; flex: 1; min-width: 0; border-top: 0; min-height: 0; background: transparent; }
+#storyboard.show-settings > #bottom-bar { display: flex; }
+#storyboard.show-settings .sb-strip,
+#storyboard.show-settings .tl-view,
+#storyboard.show-settings .tk-view,
+#storyboard.show-settings .tl-status,
+#storyboard.show-settings .tk-switch,
+#storyboard.show-settings .tl-measure { display: none !important; }
+#storyboard.show-settings { padding-top: 0; padding-bottom: 0; align-items: stretch; }
+#storyboard.show-settings .sb-tabs,
+#storyboard.show-settings .sb-actions { align-self: center; }
+.bb-camera-opening { margin-bottom: 6px; }
+.bb-camera-opening button { font-size: 9.5px; padding: 4px 6px; }
+.bb-camera-opening.disabled { opacity: 0.4; pointer-events: none; }
+.tk-h { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 2; }
+.tk-h.l { left: 0; border-radius: 6px 0 0 6px; }
+.tk-h.r { right: 0; border-radius: 0 6px 6px 0; }
+.tk-bar:hover .tk-h { background: rgba(46, 47, 138, 0.25); }
+.tk-row.selected .tk-bar:hover .tk-h { background: rgba(255, 255, 255, 0.35); }
+.tk-bar.stretched { background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(46, 47, 138, 0.08) 6px 12px); }
+.tk-bar-text { padding: 0 4px; }
+#audio-panel { max-height: min(78vh, 640px); overflow-y: auto; }
+.ap-list { display: flex; flex-direction: column; gap: 8px; }
+.ap-card { padding: 9px 10px; border: 1px solid var(--border); border-radius: var(--r-ctl); background: var(--panel); display: flex; flex-direction: column; gap: 5px; }
+.ap-card-head { display: flex; align-items: center; gap: 6px; }
+.ap-card-head button { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--border-hi); border-radius: var(--r-ctl); background: var(--sidebar); color: var(--text); cursor: pointer; }
+.ap-card-head button:hover { border-color: var(--accent); }
+.ap-add { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.ap-add button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border: 1px solid var(--border-hi); border-radius: var(--r-ctl); background: var(--sidebar); color: var(--text); font: 500 11px "Geist", sans-serif; cursor: pointer; }
+.ap-add button:hover { border-color: var(--accent); }
+.ap-add .ap-primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }

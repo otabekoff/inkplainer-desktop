@@ -7,10 +7,15 @@
 // slots together, reusing the engine's own slot code (_buildSlots, _tickAllSlots), so drawing
 // styles, hands, the camera, export and timing all work the same in both modes.
 (() => {
-  registerLayerFields("startAt");
+  // startAt: start time in tracks mode. duration: a length set by dragging a bar's edge; the
+  // animation plays faster or slower to fit (durationBase/durationSig remember its natural
+  // length, so the stretch still applies before the timeline has re-timed it after a reload).
+  registerLayerFields("startAt", "duration", "durationBase", "durationSig");
   const GAP = 0.2; // the engine's pause between steps
   const isTracks = () => inkScenes.currentScene?.timing === "tracks";
-  const durationOf = (l) => window.inkTimeline?.durationOf(l);
+  const durationOf = (l) => window.inkTimeline?.effectiveDuration(l);
+  const naturalOf = (l) =>
+    window.inkTimeline?.durationOf(l) ?? (l.durationSig && l.durationSig === inkTimeline.signature(l) ? l.durationBase : undefined);
 
   // Start times a scene in steps mode works out to (for drawing it as tracks).
   function sequenceStarts() {
@@ -32,6 +37,18 @@
     for (const l of getAnimOrder()) end = Math.max(end, startOf(l, seq) + (durationOf(l) ?? 1));
     return end;
   }
+
+  // A layer with a set duration plays at the rate that makes its natural length fit.
+  const originalBuildSlots = window._buildSlots;
+  window._buildSlots = function (group, sharedBg) {
+    const slots = originalBuildSlots.call(this, group, sharedBg);
+    for (const slot of slots) {
+      const l = slot.layer;
+      const natural = l.duration > 0 ? naturalOf(l) : undefined;
+      slot._rate = natural > 0 ? Math.min(10, Math.max(0.1, natural / l.duration)) : 1;
+    }
+    return slots;
+  };
 
   // ── Scheduler ─────────────────────────────────────────────────────────────
   let run = null; // { start, pending, pausedAt, total }
@@ -154,6 +171,11 @@
   const originalDrawHand = window.drawHand;
   window.drawHand = function (...args) {
     const slot = state._currentSlot;
+    // During a slot's steps the hand is only remembered; the engine draws it once after.
+    if (slot && state._deferHand) {
+      slot._lastHand = args;
+      return;
+    }
     if (slot && state._activeSlots?.length > 1) {
       const live = state._activeSlots.filter((s) => !s.done);
       if (live.length > 1 && live[live.length - 1] !== slot) return;
@@ -208,6 +230,7 @@
   view.querySelector(".tk-reset").addEventListener("click", () => {
     const scene = inkScenes.currentScene;
     if (!scene) return;
+    pushUndoSnapshot();
     scene.timing = "sequence";
     scheduleAutoSave();
     render();
@@ -219,6 +242,7 @@
   let pps = 70; // pixels per second
   const snap = (v, free) => (free ? Math.round(v * 100) / 100 : Math.round(v * 10) / 10);
 
+  // Called on the first move of a drag; the drag's own undo step (taken before it) covers it.
   function convertToTracks() {
     const seq = sequenceStarts();
     for (const l of state.layers) l.startAt = Math.round((seq.get(l) ?? 0) * 100) / 100;
@@ -245,26 +269,25 @@
       html += `<div class="tk-tick${s % 5 === 0 ? " major" : ""}" style="left:${LABEL_W + s * pps}px"><span>${s}s</span></div>`;
     }
     html += "</div>";
-    // Audio rows: the scene's voiceover (drag to set when it starts) and the music.
-    const voice = window.inkAudio?.voiceOf(inkScenes.currentScene);
-    let audioRows = 0;
-    if (voice) {
-      audioRows++;
+    // Audio rows: this scene's voiceover clips (drag to set when each starts) and the music.
+    const clips = window.inkAudio?.clipsOf(inkScenes.currentScene) || [];
+    const musicTracks = window.inkAudio?.music || [];
+    const audioRows = clips.length + musicTracks.length;
+    for (const c of clips) {
       html += `<div class="tk-row tk-audio" style="width:${width}px"><div class="tk-label" style="width:${LABEL_W}px"><span>🎙 Voiceover</span></div>
-        <div class="tk-bar voice" data-voice="1" style="left:${LABEL_W + (voice.start || 0) * pps}px;width:${Math.max(18, (voice.duration || 1) * pps)}px"><span class="tk-bar-text"></span></div></div>`;
+        <div class="tk-bar voice" data-clip="${c.id}" style="left:${LABEL_W + (c.start || 0) * pps}px;width:${Math.max(18, (c.duration || 1) * pps)}px"><span class="tk-bar-text"></span></div></div>`;
     }
-    if (window.inkAudio?.music) {
-      audioRows++;
+    for (const m of musicTracks) {
       html += `<div class="tk-row tk-audio" style="width:${width}px"><div class="tk-label" style="width:${LABEL_W}px"><span>♪ Music</span></div>
-        <div class="tk-bar music" style="left:${LABEL_W}px;width:${seconds * pps}px"><span class="tk-bar-text"></span></div></div>`;
+        <div class="tk-bar music" data-music="${m.id}" style="left:${LABEL_W}px;width:${seconds * pps}px"><span class="tk-bar-text"></span></div></div>`;
     }
     for (const l of [...layers].reverse()) {
       const start = startOf(l, seq);
       const d = durationOf(l);
       html += `<div class="tk-row${l.id === state.selectedLayerId ? " selected" : ""}" data-id="${l.id}" style="width:${width}px">
         <div class="tk-label" style="width:${LABEL_W}px"><img alt=""><span></span></div>
-        <div class="tk-bar${d == null ? " unknown" : ""}" data-id="${l.id}" style="left:${LABEL_W + start * pps}px;width:${Math.max(18, (d ?? 1) * pps)}px">
-          <span class="tk-bar-text"></span>
+        <div class="tk-bar${d == null ? " unknown" : ""}${l.duration > 0 ? " stretched" : ""}" data-id="${l.id}" style="left:${LABEL_W + start * pps}px;width:${Math.max(18, (d ?? 1) * pps)}px">
+          <i class="tk-h l" data-edge="l"></i><span class="tk-bar-text"></span><i class="tk-h r" data-edge="r"></i>
         </div>
       </div>`;
     }
@@ -273,17 +296,23 @@
     area.innerHTML = html;
     area.style.width = `${width}px`;
     area.style.height = `${(layers.length + audioRows + 1) * ROW_H + 8}px`;
-    const vText = area.querySelector(".tk-bar.voice .tk-bar-text");
-    if (vText) vText.textContent = `${voice.name} · starts ${(voice.start || 0).toFixed(1)}s`;
-    const mText = area.querySelector(".tk-bar.music .tk-bar-text");
-    if (mText) mText.textContent = window.inkAudio.music.name;
+    for (const c of clips) {
+      const el = area.querySelector(`.tk-bar.voice[data-clip="${c.id}"] .tk-bar-text`);
+      if (el) el.textContent = `${c.name} · starts ${(c.start || 0).toFixed(1)}s`;
+    }
+    for (const m of musicTracks) {
+      const el = area.querySelector(`.tk-bar.music[data-music="${m.id}"] .tk-bar-text`);
+      if (el) el.textContent = `${m.name}${m.start ? ` · from ${m.start}s into the movie` : ""}`;
+    }
     for (const l of layers) {
       const row = area.querySelector(`.tk-row[data-id="${l.id}"]`);
       row.querySelector("img").src = l.img?.src || "";
       row.querySelector(".tk-label span").textContent = l.name;
       const d = durationOf(l);
       row.querySelector(".tk-bar-text").textContent = `${(l.animStyle || "").replace(/^(spec|enter)-/, "")} · ${d == null ? "…" : `${d.toFixed(1)}s`}`;
-      row.querySelector(".tk-bar").title = `${l.name}: starts at ${startOf(l, seq).toFixed(2)}s${d == null ? "" : `, lasts ${d.toFixed(1)}s`}`;
+      row.querySelector(".tk-bar").title =
+        `${l.name}: starts at ${startOf(l, seq).toFixed(2)}s${d == null ? "" : `, lasts ${d.toFixed(1)}s`}` +
+        (l.duration > 0 ? ` (set; natural ${(naturalOf(l) ?? 0).toFixed(1)}s). Double-click an edge to reset.` : ". Drag the edges to change when it starts and how long it takes.");
     }
     if (tracks) {
       const status = board.querySelector(".tl-status");
@@ -296,11 +325,11 @@
   area.addEventListener("pointerdown", (e) => {
     const bar = e.target.closest(".tk-bar");
     const row = e.target.closest(".tk-row");
-    if (bar?.dataset.voice) {
-      const voice = window.inkAudio.voiceOf(inkScenes.currentScene);
+    if (bar?.dataset.clip) {
+      const voice = window.inkAudio.clipsOf(inkScenes.currentScene).find((c) => c.id === Number(bar.dataset.clip));
       if (!voice) return;
       e.preventDefault();
-      drag = { voice, x: e.clientX, from: voice.start || 0, moved: false };
+      drag = { voice, x: e.clientX, from: voice.start || 0, before: _serializeState(), moved: false };
       return;
     }
     if (bar?.classList.contains("music")) return;
@@ -309,13 +338,16 @@
     const layer = getLayerById(Number(bar.dataset.id));
     if (!layer || state.playing) return;
     e.preventDefault();
+    const edge = e.target.closest("[data-edge]")?.dataset.edge;
     try {
       bar.setPointerCapture(e.pointerId);
     } catch {
       /* synthetic or already-released pointer */
     }
     const seq = isTracks() ? null : sequenceStarts();
-    drag = { layer, x: e.clientX, from: startOf(layer, seq), before: _serializeState(), moved: false };
+    const from = startOf(layer, seq);
+    const length = durationOf(layer) ?? 1;
+    drag = { layer, edge, x: e.clientX, from, length, end: from + length, before: _serializeState(), moved: false };
   });
   area.addEventListener("pointermove", (e) => {
     if (!drag) return;
@@ -324,13 +356,32 @@
     if (drag.voice) {
       drag.moved = true;
       drag.voice.start = Math.max(0, snap(drag.from + dx / pps, e.shiftKey));
-      const vb = area.querySelector(".tk-bar.voice");
+      const vb = area.querySelector(`.tk-bar.voice[data-clip="${drag.voice.id}"]`);
       if (vb) vb.style.left = `${LABEL_W + drag.voice.start * pps}px`;
       return;
     }
     if (!drag.moved) {
       drag.moved = true;
-      if (!isTracks()) convertToTracks();
+      // Moving the start (or the start edge) needs tracks; the end edge works in steps too.
+      if (!isTracks() && drag.edge !== "r") convertToTracks();
+      if (drag.edge && !(drag.layer.duration > 0)) {
+        drag.layer.durationBase = naturalOf(drag.layer);
+        drag.layer.durationSig = inkTimeline.signature(drag.layer);
+      }
+    }
+    if (drag.edge) {
+      const bar = area.querySelector(`.tk-bar[data-id="${drag.layer.id}"]`);
+      const MIN = 0.2;
+      if (drag.edge === "r") {
+        drag.layer.duration = Math.max(MIN, snap(drag.length + dx / pps, e.shiftKey));
+      } else {
+        const start = Math.min(drag.end - MIN, Math.max(0, snap(drag.from + dx / pps, e.shiftKey)));
+        drag.layer.startAt = start;
+        drag.layer.duration = Math.round((drag.end - start) * 100) / 100;
+        if (bar) bar.style.left = `${LABEL_W + start * pps}px`;
+      }
+      if (bar) bar.style.width = `${Math.max(18, drag.layer.duration * pps)}px`;
+      return;
     }
     let t = Math.max(0, snap(drag.from + dx / pps, e.shiftKey));
     // Magnet: the start or end of other bars, within 6 px.
@@ -357,6 +408,7 @@
     drag = null;
     if (d.voice) {
       if (d.moved) {
+        pushUndoSnapshot(d.before);
         scheduleAutoSave();
         window.inkAudio.refreshUI();
       }
@@ -364,6 +416,18 @@
     }
     if (!d.moved) return selectLayer(d.layer.id); // a click selects
     pushUndoSnapshot(d.before);
+    scheduleAutoSave();
+    render();
+  });
+  // Double-click a bar's edge: back to the layer's natural length.
+  area.addEventListener("dblclick", (e) => {
+    const edge = e.target.closest("[data-edge]");
+    const bar = e.target.closest(".tk-bar[data-id]");
+    if (!edge || !bar) return;
+    const layer = getLayerById(Number(bar.dataset.id));
+    if (!(layer?.duration > 0)) return;
+    pushUndoSnapshot();
+    delete layer.duration;
     scheduleAutoSave();
     render();
   });

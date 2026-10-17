@@ -52,6 +52,8 @@
   ];
   const signature = (l) => [imageId(l.img), state.canvasW, state.canvasH, ...SIG_FIELDS.map((f) => l[f])].join("|");
   const durationOf = (l) => durations.get(signature(l));
+  // What a layer actually takes: a duration set in Tracks wins over its natural length.
+  const effectiveDuration = (l) => (l.duration > 0 ? l.duration : durationOf(l));
 
   async function timeLayer(layer) {
     const saved = { layers: state.layers, groups: state.groups, selected: state.selectedLayerId };
@@ -59,7 +61,7 @@
     let started = false;
     inkClock.enterManual();
     try {
-      state.layers = [{ ...layer, visible: true, animOrder: null, pauseAfter: undefined, startAt: 0 }];
+      state.layers = [{ ...layer, visible: true, animOrder: null, pauseAfter: undefined, startAt: 0, duration: undefined }];
       state.groups = [];
       restartAnim();
       let lastYield = inkClock.native.perfNow();
@@ -144,8 +146,15 @@
   if (!board) return;
   const tabs = document.createElement("div");
   tabs.className = "sb-tabs";
-  tabs.innerHTML = `<button type="button" data-view="scenes" class="active">Scenes <span class="sb-count"></span></button><button type="button" data-view="timeline">Timeline</button>`;
+  tabs.innerHTML =
+    `<button type="button" data-view="settings">Settings</button>` +
+    `<button type="button" data-view="scenes">Scenes <span class="sb-count"></span></button>` +
+    `<button type="button" data-view="timeline">Timeline</button>`;
   board.querySelector(".sb-head").replaceWith(tabs);
+  // Hand style, speed, camera and canvas size live in the same panel as a tab, so only one
+  // row is shown under the canvas.
+  const settings = document.getElementById("bottom-bar");
+  if (settings) tabs.after(settings);
   inkScenes.render(); // fills the scene count now shown in the tab
 
   const view = document.createElement("div");
@@ -156,16 +165,32 @@
   status.title = "Length of this scene: steps, pauses and the hold at the end";
   board.querySelector(".sb-actions").prepend(status);
 
-  tabs.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-view]");
-    if (!b) return;
-    tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
-    board.classList.toggle("show-timeline", b.dataset.view === "timeline");
-    if (b.dataset.view === "timeline") {
+  function showView(view) {
+    tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x.dataset.view === view));
+    board.classList.toggle("show-settings", view === "settings");
+    board.classList.toggle("show-timeline", view === "timeline");
+    try {
+      localStorage.setItem("inkplainer.dockView", view);
+    } catch {
+      /* storage unavailable */
+    }
+    if (view === "timeline") {
       render();
       schedule(150);
     }
+    window.fitCanvas?.(); // the panel height may change
+  }
+  tabs.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-view]");
+    if (b) showView(b.dataset.view);
   });
+  let firstView = "settings";
+  try {
+    firstView = localStorage.getItem("inkplainer.dockView") || "settings";
+  } catch {
+    /* storage unavailable */
+  }
+  queueMicrotask(() => showView(firstView));
 
   const PX_PER_SECOND = 70;
   const thumbOf = (l) => l.img?.src || "";
@@ -184,7 +209,7 @@
       step.className = "tl-step";
       step.dataset.step = i;
       step.draggable = true;
-      const secs = Math.max(...group.map((l) => durationOf(l) || 0));
+      const secs = Math.max(...group.map((l) => effectiveDuration(l) || 0));
       if (secs) step.style.minWidth = `${Math.max(96, Math.round(secs * PX_PER_SECOND))}px`;
       step.innerHTML = `<div class="tl-step-head"><span class="tl-idx">${i + 1}</span><span class="tl-time">${secs ? `${secs.toFixed(1)}s` : ""}</span>${group.length > 1 ? '<span class="tl-together">together</span>' : ""}</div>`;
       for (const l of group) {
@@ -271,10 +296,10 @@
       });
       view.appendChild(gap);
     });
-    const known = list.every((g) => g.every((l) => durationOf(l) !== undefined));
+    const known = list.every((g) => g.every((l) => effectiveDuration(l) !== undefined));
     if (!running) {
       const total =
-        list.reduce((t, g, i) => t + Math.max(...g.map((l) => durationOf(l) || 0)) + (i < list.length - 1 ? 0.2 : 0), 0) +
+        list.reduce((t, g, i) => t + Math.max(...g.map((l) => effectiveDuration(l) || 0)) + (i < list.length - 1 ? 0.2 : 0), 0) +
         list.reduce((t, g) => t + Math.max(0, ...g.map((l) => Number(l.pauseAfter) || 0)), 0) +
         (inkScenes.currentScene?.hold ?? 1);
       status.textContent = known ? `Scene ≈ ${total.toFixed(1)}s` : "";
@@ -322,5 +347,5 @@
     ),
   );
 
-  window.inkTimeline = { pauseAfter, steps, render, durationOf, timeNow: timePending };
+  window.inkTimeline = { pauseAfter, steps, render, durationOf, effectiveDuration, signature, timeNow: timePending };
 })();
