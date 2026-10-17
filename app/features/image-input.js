@@ -32,6 +32,7 @@
         const img = await readImage(file);
         const base = (file.name || "").replace(/\.[^.]+$/, "");
         addLayer(img, base && base !== "image" ? base : `Pasted image ${state.layers.length + 1}`);
+        await keepSvgSource(file, state.layers[state.layers.length - 1]);
         if (at) {
           const layer = state.layers[state.layers.length - 1];
           layer.x = Math.round(at.x - layer.w / 2 + i * 24);
@@ -47,6 +48,25 @@
     }
     return images.length;
   }
+
+  // SVG files keep their source so they can be drawn stroke by stroke (features/svg-draw.js).
+  async function keepSvgSource(file, layer) {
+    if (!layer || !/svg/i.test(file.type)) return;
+    layer.svgSource = await file.text();
+    layer.animStyle = "svg-draw";
+    if (layer.id === state.selectedLayerId) syncSidebarToLayer(layer.id);
+  }
+  window.keepSvgSource = keepSvgSource;
+
+  // The panel's drop zone and Browse button go through the app's loadImageFile.
+  const originalLoad = window.loadImageFile;
+  window.loadImageFile = function (file) {
+    if (!/svg/i.test(file.type)) return originalLoad.call(this, file);
+    readImage(file).then(async (img) => {
+      addLayer(img, file.name.replace(/.[^.]+$/, ""));
+      await keepSvgSource(file, state.layers[state.layers.length - 1]);
+    }, (err) => showToast(err.message));
+  };
 
   // ── Paste ─────────────────────────────────────────────────────────────────
   document.addEventListener("paste", (e) => {
