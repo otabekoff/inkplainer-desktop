@@ -68,16 +68,21 @@
     const sceneCount = inkScenes.list.length;
     let t0 = 0;
     try {
+      await window.inkAudio?.prepare();
       await inkMovie.render({
         fps: FPS,
         from: opts.from ?? 0,
+        onSceneStart: (scene, time) => window.inkAudio?.sceneStarted(scene, time),
         cancelled: () => stopped,
         onProgress: (f, s) => {
           fill.style.width = `${(f * 100).toFixed(1)}%`;
           info.textContent = sceneCount > 1 ? `Scene ${s + 1} of ${sceneCount}` : "";
         },
         onFrame: async (frame, { index, time }) => {
-          if (index === 0) t0 = native.perfNow();
+          if (index === 0) {
+            t0 = native.perfNow();
+            window.inkAudio?.startPlayback(); // audio starts with the first frame
+          }
           // Never run ahead of real time.
           const wait = t0 + (index * 1000) / FPS - native.perfNow();
           if (wait > 1) await new Promise((r) => native.setTimeout(r, wait));
@@ -94,6 +99,7 @@
         showToast(`Preview stopped: ${err.message}`);
       }
     } finally {
+      window.inkAudio?.stopPlayback();
       playing = false;
       el.classList.remove("show");
       fill.style.width = "0%";

@@ -4392,6 +4392,8 @@ function saveProject(projectId = currentProjectId) {
         groups: state.groups || [],
         // Every scene (features/scenes.js); this scene's layers stay in layers above.
         scenes: typeof serializeScenes === 'function' ? serializeScenes() : undefined,
+        // Music and voiceovers (features/audio.js); IndexedDB stores the Blobs as they are.
+        audio: typeof serializeAudio === 'function' ? serializeAudio() : undefined,
         
         // Animation settings
         animStyle: state.animStyle,
@@ -10861,6 +10863,7 @@ function obEnd() {
 <script src="features/layer-actions.js"></script>
 <script src="features/template-library.js"></script>
 <script src="features/templates.js"></script>
+<script src="features/audio.js"></script>
 <script src="features/movie.js"></script>
 <script src="features/player.js"></script>
 <script src="features/export.js"></script>

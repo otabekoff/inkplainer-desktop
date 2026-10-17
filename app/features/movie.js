@@ -122,8 +122,10 @@
    * @param {() => boolean} [o.cancelled]
    * @param {number} [o.from] first scene to render (default 0)
    * @param {number} [o.to] last scene to render (default: the last one)
+   * @param {(scene: object, time: number, index: number) => void} [o.onSceneStart] when a scene's
+   *   drawing begins (after its transition in), at  seconds into the movie
    */
-  async function renderMovie({ fps, width, height, onFrame, onProgress, cancelled = () => false, from = 0, to }) {
+  async function renderMovie({ fps, width, height, onFrame, onProgress, onSceneStart, cancelled = () => false, from = 0, to }) {
     const even = (n) => Math.max(2, Math.round(n / 2) * 2);
     const W = even(width ?? state.canvasW);
     const H = even(height ?? state.canvasH);
@@ -192,6 +194,9 @@
         let idleSteps = 0;
         let hold = Math.max(1, Math.round((scene.hold ?? 1) * fps));
         const sceneStart = index;
+        onSceneStart?.(scene, sceneStart / fps, si);
+        // A voiceover can keep the scene on screen until it has finished.
+        const minFrames = Math.round((window.inkAudio?.sceneMinEnd(scene) || 0) * fps);
         const check = () => {
           if (!hasContent) return;
           if (!state.done) started = true;
@@ -208,7 +213,7 @@
           composeScene(sctx2, W, H, time());
           fctx.drawImage(sceneFrame, 0, 0);
           await emit(si);
-          if (complete && --hold <= 0) break;
+          if (complete && --hold <= 0 && index - sceneStart >= minFrames) break;
           if (index - sceneStart > MAX_SCENE_SECONDS * fps) break;
           if (index % 4 === 0) {
             const within = complete ? 1 : getExportAnimationProgress();

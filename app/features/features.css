@@ -525,3 +525,56 @@
 .tk-bar-text { overflow: hidden; text-overflow: ellipsis; }
 .tk-end { position: absolute; top: 22px; bottom: 0; width: 0; border-left: 2px dashed #e5484d; z-index: 1; pointer-events: none; }
 .tk-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #e5484d; z-index: 4; pointer-events: none; }
+.tk-row.tk-audio .tk-label { color: var(--muted-hi); font-weight: 600; }
+.tk-bar.voice { background: #fde7c7; border-color: #f0a14a; color: #7a3d00; }
+.tk-bar.music { background: #dff3e6; border-color: #7cc79a; color: #1d5b36; cursor: default; }
+
+/* ── Audio panel (audio.js) ─────────────────────────────────────────────── */
+.sb-audio {
+  position: relative;
+  display: flex; align-items: center; gap: 6px;
+  margin-right: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--r-ctl);
+  background: var(--sidebar);
+  color: var(--text);
+  font: 600 11.5px "Geist", sans-serif;
+  cursor: pointer;
+}
+.sb-audio:hover { border-color: var(--accent); }
+.sb-audio-dot { display: none; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 999px; background: #f0a14a; }
+.sb-audio.has-audio .sb-audio-dot { display: block; }
+.sb-scene.has-voice .sb-label::after { content: "🎙"; margin-left: auto; font-size: 10px; }
+#audio-panel {
+  position: fixed; z-index: 3000; display: none;
+  width: 340px; padding: 14px;
+  background: var(--sidebar); border: 1px solid var(--border-hi); border-radius: var(--r-card);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
+  font-family: "Geist", sans-serif;
+}
+#audio-panel.show { display: block; }
+.ap-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.ap-section { margin: 12px 0 6px; font-size: 9px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted-hi); }
+.ap-section span { margin-left: 4px; letter-spacing: 0.3px; text-transform: none; font-weight: 500; color: var(--muted); }
+.ap-clip { display: flex; align-items: center; gap: 6px; }
+.ap-clip button {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-hi); border-radius: var(--r-ctl);
+  background: var(--panel); color: var(--text);
+  font: 500 11px "Geist", sans-serif; cursor: pointer;
+}
+.ap-clip button:hover { border-color: var(--accent); }
+.ap-clip .ap-primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.ap-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
+.ap-name em { margin-left: 6px; font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ap-rec { flex: 1; display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--accent2); font-variant-numeric: tabular-nums; }
+.ap-rec-dot { width: 9px; height: 9px; border-radius: 999px; background: var(--accent2); animation: ap-blink 1s ease-in-out infinite; }
+@keyframes ap-blink { 50% { opacity: 0.25; } }
+.ap-opts { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.ap-field { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted-hi); }
+.ap-field > span { width: 70px; flex-shrink: 0; }
+.ap-field input { flex: 1; }
+.ap-field b { width: 40px; text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--text); }
+.ap-check { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted-hi); }

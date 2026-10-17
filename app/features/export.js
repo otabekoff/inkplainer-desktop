@@ -119,16 +119,13 @@
     const enc = await pickEncoder(format, W, H, bitrate, fps, allowHardware);
     const { Muxer, ArrayBufferTarget } = await loadMuxer(format);
 
-    const target = new ArrayBufferTarget();
-    const muxer = new Muxer({
-      target,
-      video: { codec: enc.muxer, width: W, height: H, ...(format === "webm" ? { frameRate: fps } : {}) },
-      ...(format === "mp4" ? { fastStart: "in-memory" } : {}),
-    });
-
+    // Video chunks are kept until the end: the soundtrack can only be mixed once the scene
+    // start times are known, and both streams are then muxed in timestamp order.
+    const videoChunks = [];
+    const sceneStarts = [];
     let encoderError = null;
     const encoder = new VideoEncoder({
-      output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+      output: (chunk, meta) => videoChunks.push({ chunk, meta }),
       error: (e) => (encoderError = e),
     });
     encoder.configure(enc.config);
@@ -157,6 +154,7 @@
           progress = fraction;
           scene = s;
         },
+        onSceneStart: (sceneObj, time) => sceneStarts.push({ scene: sceneObj, time }),
         onFrame: async (frameCanvas, { index }) => {
           if (encoderError) throw enc.hardware ? new HardwareEncoderFailed(encoderError.message) : encoderError;
           const frame = new VideoFrame(frameCanvas, {
@@ -183,12 +181,77 @@
       progressText.textContent = `Finishing ${format.toUpperCase()}…`;
       await encoder.flush();
       if (encoderError) throw encoderError;
+
+      // Soundtrack: music and voiceovers mixed offline at their exact times.
+      const duration = videoChunks.length ? (videoChunks.length / fps) : 0;
+      const audio = window.inkAudio?.hasAudio() ? await encodeAudio(format, duration, sceneStarts, progressText) : null;
+
+      const target = new ArrayBufferTarget();
+      const muxer = new Muxer({
+        target,
+        video: { codec: enc.muxer, width: W, height: H, ...(format === "webm" ? { frameRate: fps } : {}) },
+        ...(audio ? { audio: { codec: audio.muxerCodec, numberOfChannels: 2, sampleRate: audio.sampleRate } } : {}),
+        ...(format === "mp4" ? { fastStart: "in-memory" } : {}),
+        firstTimestampBehavior: "offset",
+      });
+      const all = [
+        ...videoChunks.map((c) => ({ ...c, video: true })),
+        ...(audio?.chunks || []).map((c) => ({ ...c, video: false })),
+      ].sort((a, b) => a.chunk.timestamp - b.chunk.timestamp || (a.video ? -1 : 1));
+      for (const c of all) {
+        if (c.video) muxer.addVideoChunk(c.chunk, c.meta);
+        else muxer.addAudioChunk(c.chunk, c.meta);
+      }
       muxer.finalize();
       progressBar.style.width = "100%";
       return new Blob([target.buffer], { type: format === "mp4" ? "video/mp4" : "video/webm" });
     } finally {
       if (encoder.state !== "closed") encoder.close();
     }
+  }
+
+  // Mixes and encodes the soundtrack: AAC for MP4 (Opus if this PC has no AAC encoder),
+  // Opus for WebM. Returns null when there is nothing to hear.
+  async function encodeAudio(format, duration, sceneStarts, progressText) {
+    const sampleRate = 48000;
+    progressText.textContent = "Mixing audio…";
+    const mixed = await window.inkAudio.mix(duration, sceneStarts, sampleRate);
+    if (!mixed) return null;
+    const choices = format === "mp4" ? [["mp4a.40.2", "aac"], ["opus", "opus"]] : [["opus", "A_OPUS"]];
+    let picked = null;
+    for (const [codec, muxerCodec] of choices) {
+      const config = { codec, sampleRate, numberOfChannels: 2, bitrate: 192000 };
+      try {
+        if ((await AudioEncoder.isConfigSupported(config)).supported) {
+          picked = { config, muxerCodec };
+          break;
+        }
+      } catch {
+        /* try the next one */
+      }
+    }
+    if (!picked) throw new Error("This PC has no audio encoder for this format");
+    const chunks = [];
+    let error = null;
+    const enc = new AudioEncoder({ output: (chunk, meta) => chunks.push({ chunk, meta }), error: (e) => (error = e) });
+    enc.configure(picked.config);
+    const step = Math.round(sampleRate / 10); // 100 ms per AudioData
+    const left = mixed.getChannelData(0);
+    const right = mixed.numberOfChannels > 1 ? mixed.getChannelData(1) : left;
+    for (let i = 0; i < mixed.length; i += step) {
+      const n = Math.min(step, mixed.length - i);
+      const planes = new Float32Array(n * 2);
+      planes.set(left.subarray(i, i + n), 0);
+      planes.set(right.subarray(i, i + n), n);
+      const data = new AudioData({ format: "f32-planar", sampleRate, numberOfFrames: n, numberOfChannels: 2, timestamp: Math.round((i / sampleRate) * 1e6), data: planes });
+      enc.encode(data);
+      data.close();
+      if (error) throw error;
+    }
+    await enc.flush();
+    enc.close();
+    if (error) throw error;
+    return { chunks, sampleRate, muxerCodec: picked.muxerCodec };
   }
 
   async function exportVideo(format, progressText, progressBar) {

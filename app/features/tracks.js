@@ -245,6 +245,19 @@
       html += `<div class="tk-tick${s % 5 === 0 ? " major" : ""}" style="left:${LABEL_W + s * pps}px"><span>${s}s</span></div>`;
     }
     html += "</div>";
+    // Audio rows: the scene's voiceover (drag to set when it starts) and the music.
+    const voice = window.inkAudio?.voiceOf(inkScenes.currentScene);
+    let audioRows = 0;
+    if (voice) {
+      audioRows++;
+      html += `<div class="tk-row tk-audio" style="width:${width}px"><div class="tk-label" style="width:${LABEL_W}px"><span>🎙 Voiceover</span></div>
+        <div class="tk-bar voice" data-voice="1" style="left:${LABEL_W + (voice.start || 0) * pps}px;width:${Math.max(18, (voice.duration || 1) * pps)}px"><span class="tk-bar-text"></span></div></div>`;
+    }
+    if (window.inkAudio?.music) {
+      audioRows++;
+      html += `<div class="tk-row tk-audio" style="width:${width}px"><div class="tk-label" style="width:${LABEL_W}px"><span>♪ Music</span></div>
+        <div class="tk-bar music" style="left:${LABEL_W}px;width:${seconds * pps}px"><span class="tk-bar-text"></span></div></div>`;
+    }
     for (const l of [...layers].reverse()) {
       const start = startOf(l, seq);
       const d = durationOf(l);
@@ -259,7 +272,11 @@
     html += `<div class="tk-playhead" style="left:${LABEL_W}px"></div>`;
     area.innerHTML = html;
     area.style.width = `${width}px`;
-    area.style.height = `${(layers.length + 1) * ROW_H + 8}px`;
+    area.style.height = `${(layers.length + audioRows + 1) * ROW_H + 8}px`;
+    const vText = area.querySelector(".tk-bar.voice .tk-bar-text");
+    if (vText) vText.textContent = `${voice.name} · starts ${(voice.start || 0).toFixed(1)}s`;
+    const mText = area.querySelector(".tk-bar.music .tk-bar-text");
+    if (mText) mText.textContent = window.inkAudio.music.name;
     for (const l of layers) {
       const row = area.querySelector(`.tk-row[data-id="${l.id}"]`);
       row.querySelector("img").src = l.img?.src || "";
@@ -279,7 +296,15 @@
   area.addEventListener("pointerdown", (e) => {
     const bar = e.target.closest(".tk-bar");
     const row = e.target.closest(".tk-row");
-    if (row && !bar) return selectLayer(Number(row.dataset.id));
+    if (bar?.dataset.voice) {
+      const voice = window.inkAudio.voiceOf(inkScenes.currentScene);
+      if (!voice) return;
+      e.preventDefault();
+      drag = { voice, x: e.clientX, from: voice.start || 0, moved: false };
+      return;
+    }
+    if (bar?.classList.contains("music")) return;
+    if (row && !bar && row.dataset.id) return selectLayer(Number(row.dataset.id));
     if (!bar) return;
     const layer = getLayerById(Number(bar.dataset.id));
     if (!layer || state.playing) return;
@@ -296,6 +321,13 @@
     if (!drag) return;
     const dx = e.clientX - drag.x;
     if (!drag.moved && Math.abs(dx) < 3) return;
+    if (drag.voice) {
+      drag.moved = true;
+      drag.voice.start = Math.max(0, snap(drag.from + dx / pps, e.shiftKey));
+      const vb = area.querySelector(".tk-bar.voice");
+      if (vb) vb.style.left = `${LABEL_W + drag.voice.start * pps}px`;
+      return;
+    }
     if (!drag.moved) {
       drag.moved = true;
       if (!isTracks()) convertToTracks();
@@ -323,6 +355,13 @@
     if (!drag) return;
     const d = drag;
     drag = null;
+    if (d.voice) {
+      if (d.moved) {
+        scheduleAutoSave();
+        window.inkAudio.refreshUI();
+      }
+      return render();
+    }
     if (!d.moved) return selectLayer(d.layer.id); // a click selects
     pushUndoSnapshot(d.before);
     scheduleAutoSave();
