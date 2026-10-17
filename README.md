@@ -17,14 +17,18 @@ by NadirWeb-App and is now a fork that grows VideoScribe-style features on top o
 - Drawing styles: scanner, contour, chunks, outline + fill (several stroke and colour styles),
   subject-aware orders (human, animal, portrait, vehicle, building, landscape, spiral).
 - Entrances: move in (the hand carries the element in), fade in, pop in, drop in.
+- **Shapes** (boxes, circles, arrows, stars, speech bubbles, check marks, braces, …) with colours,
+  line width and a hand-drawn look; shapes and SVG art are drawn stroke by stroke.
 - 12 built-in presets (Marker Pro, Pencil Sketch, Watercolor, Chalk Talk, Blueprint Ink, …);
   a preset can set the background too.
 - **Scenes** with transitions: cut, crossfade, dip to white/black, push, wipe, zoom, circle
   reveal; each scene has its own layers, background, hold time and undo history.
 - **Camera** that follows the drawing: zooms and pans to each element, follows the pen across
   big ones, zooms out at the end. Per layer: auto, close-up or wide. Can be previewed in the editor.
-- **Timeline** of each scene: reorder steps, make layers play together, add pauses; each step
-  shows how long it takes, timed automatically.
+- **Timeline** of each scene: steps (reorder, play together, pauses) or **tracks**, where every
+  layer has its own start time on a time ruler, so things can overlap or wait; durations are
+  timed automatically.
+- **Audio:** background music and a voiceover per scene (import or record), in preview and export.
 - 19 background presets (whiteboard, paper, notebook, graph, dot grid, chalkboard, blueprint,
   kraft, cork, gradients, …) and image backgrounds (cover, fit, stretch, tile, with a wash).
 
