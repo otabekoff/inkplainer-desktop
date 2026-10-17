@@ -26,6 +26,7 @@
     const buf = await decoder.decodeAudioData(await clip.blob.arrayBuffer());
     buffers.set(clip.blob, buf);
     clip.duration = buf.duration;
+    queueMicrotask(() => window.inkTracks?.render()); // its bar can show the waveform now
     return buf;
   }
 
@@ -55,8 +56,46 @@
       nextClipId = Math.max(nextClipId, c.id + 1);
       bufferOf(c).catch(() => {});
     }
+    // Music used to start at a time in the whole movie; that is a time in the first scene.
+    for (const m of music) m.anchor ??= inkScenes.list[0]?.id;
     setTimeout(refreshUI, 300);
   });
+
+  // Music starts in a scene (its anchor), `start` seconds after that scene's drawing begins.
+  const sceneIndex = (id) => inkScenes.list.findIndex((s) => s.id === id);
+  const anchorIndex = (track) => Math.max(0, sceneIndex(track.anchor));
+
+  // ── Waveforms (for the Tracks view), cached per Blob ──────────────────────
+  const waves = new WeakMap();
+  function waveform(clip) {
+    const buf = clip?.blob && buffers.get(clip.blob);
+    if (!buf) return null;
+    if (waves.has(clip.blob)) return waves.get(clip.blob);
+    const W = 600;
+    const H = 48;
+    const data = buf.getChannelData(0);
+    const per = Math.max(1, Math.floor(data.length / W));
+    const c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    const x = c.getContext("2d");
+    x.fillStyle = "rgba(0, 0, 0, 0.32)";
+    let peak = 0.0001;
+    const peaks = new Float32Array(W);
+    for (let i = 0; i < W; i++) {
+      let m = 0;
+      for (let j = i * per, end = Math.min(data.length, j + per); j < end; j += 4) m = Math.max(m, Math.abs(data[j]));
+      peaks[i] = m;
+      peak = Math.max(peak, m);
+    }
+    for (let i = 0; i < W; i++) {
+      const h = Math.max(1, (peaks[i] / peak) * (H - 4));
+      x.fillRect(i, (H - h) / 2, 1, h);
+    }
+    const url = c.toDataURL("image/png");
+    waves.set(clip.blob, url);
+    return url;
+  }
 
   // Undo: the audio of the moment (music and this scene's voiceovers) goes into each snapshot.
   registerUndoExtra(
@@ -83,8 +122,8 @@
     nodes?.push(src);
     return { src, gain };
   }
-  function scheduleMusic(ctx, track, t0, nodes, endAt) {
-    const at = t0 + (track.start || 0);
+  // Starts a music track at `at` (an absolute time on ctx), with its fades.
+  function scheduleMusic(ctx, track, at, nodes, endAt) {
     const n = schedule(ctx, track, at, 0, nodes);
     if (!n) return null;
     n.src.loop = track.loop !== false;
@@ -113,7 +152,13 @@
     if (!music.length && !used.length) return null;
     for (const c of [...music, ...used.flatMap(({ scene }) => clipsOf(scene))]) await bufferOf(c);
     const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * sampleRate)), sampleRate);
-    for (const track of music) if ((track.start || 0) < duration) scheduleMusic(ctx, track, 0, null, duration);
+    const first = sceneStarts.length ? sceneIndex(sceneStarts[0].scene.id) : 0;
+    for (const track of music) {
+      const anchored = sceneStarts.find(({ scene }) => scene.id === inkScenes.list[anchorIndex(track)]?.id);
+      // Anchored in a scene before the first one rendered: already playing at the start.
+      const at = anchored ? anchored.time + (track.start || 0) : anchorIndex(track) < first ? 0 : null;
+      if (at != null && at < duration) scheduleMusic(ctx, track, at, null, duration);
+    }
     for (const { scene, time } of used) for (const c of clipsOf(scene)) schedule(ctx, c, time + (c.start || 0), c.volume ?? 1);
     return ctx.startRendering();
   }
@@ -130,15 +175,22 @@
     stopPlayback();
     if (!music.length && !voices.size) return;
     const ctx = new AudioContext();
-    live = { ctx, t0: ctx.currentTime + 0.02, nodes: [] };
-    for (const track of music) scheduleMusic(ctx, track, live.t0, live.nodes);
+    live = { ctx, t0: ctx.currentTime + 0.02, nodes: [], first: null };
     for (const [scene, time] of queued) sceneStarted(scene, time);
     queued = [];
   }
   // A scene's drawing starts `time` seconds into the movie.
   function sceneStarted(scene, time) {
-    if (!clipsOf(scene).length) return;
     if (!live) return void queued.push([scene, time]);
+    const index = sceneIndex(scene.id);
+    if (live.first == null) {
+      live.first = index;
+      // Music anchored in an earlier scene is already playing when the preview starts.
+      for (const track of music) if (anchorIndex(track) < index) scheduleMusic(live.ctx, track, live.t0, live.nodes);
+    }
+    for (const track of music) {
+      if (anchorIndex(track) === index) scheduleMusic(live.ctx, track, live.t0 + time + (track.start || 0), live.nodes);
+    }
     for (const c of clipsOf(scene)) schedule(live.ctx, c, live.t0 + time + (c.start || 0), c.volume ?? 1, live.nodes);
   }
   function stopPlayback() {
@@ -170,9 +222,13 @@
     await prepare();
     if (editor !== session) return ctx.close();
     session.t0 = ctx.currentTime + 0.02;
-    // Music from its own beginning (this is the scene on its own, not the whole movie).
+    // Music anchored in this scene starts at its offset; music from an earlier scene plays from
+    // its beginning (this is the scene on its own, not the whole movie); later music waits.
+    const here = inkScenes.current;
     for (const track of music) {
-      const n = scheduleMusic(ctx, { ...track, start: 0 }, session.t0, session.nodes);
+      const a = anchorIndex(track);
+      if (a > here) continue;
+      const n = scheduleMusic(ctx, track, session.t0 + (a === here ? track.start || 0 : 0), session.nodes);
       if (n) session.musicGains.push({ gain: n.gain, volume: track.volume ?? 0.6 });
     }
     for (const c of clips) schedule(ctx, c, session.t0 + (c.start || 0), c.volume ?? 1, session.nodes);
@@ -299,7 +355,7 @@
 
   async function addMusic(clip) {
     pushUndoSnapshot();
-    const track = { id: newId(), start: 0, volume: 0.6, fadeIn: 1, fadeOut: 2, loop: true, ...clip };
+    const track = { id: newId(), anchor: inkScenes.currentScene?.id, start: 0, volume: 0.6, fadeIn: 1, fadeOut: 2, loop: true, ...clip };
     music.push(track);
     await bufferOf(track).catch(() => showToast("That audio file could not be read"));
     changed();
@@ -337,7 +393,7 @@
     }
   });
 
-  const MUSIC_FIELDS = [["start", "Starts at", 0, 60, 0.5, "s"], ["volume", "Volume", 0, 1, 0.05, "%"], ["fadeIn", "Fade in", 0, 5, 0.25, "s"], ["fadeOut", "Fade out", 0, 8, 0.25, "s"]];
+  const MUSIC_FIELDS = [["start", "Starts after", 0, 30, 0.1, "s"], ["volume", "Volume", 0, 1, 0.05, "%"], ["fadeIn", "Fade in", 0, 5, 0.25, "s"], ["fadeOut", "Fade out", 0, 8, 0.25, "s"]];
   const VOICE_FIELDS = [["start", "Starts after", 0, 20, 0.1, "s"], ["volume", "Volume", 0, 1.5, 0.05, "%"]];
   function clipCard(kind, c) {
     const fields = (kind === "music" ? MUSIC_FIELDS : VOICE_FIELDS)
@@ -347,6 +403,12 @@
         return `<label class="ap-field"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${v}" data-k="${k}"><b>${shown}</b></label>`;
       })
       .join("");
+    // Music: which scene it starts in.
+    const anchorField = kind === "music"
+      ? '<label class="ap-field"><span>Starts in</span><select data-k="anchor">' +
+        inkScenes.list.map((sc, i) => '<option value="' + sc.id + '"' + (i === anchorIndex(c) ? " selected" : "") + ">Scene " + (i + 1) + (sc.name ? " · " + sc.name.replace(/</g, "&lt;") : "") + "</option>").join("") +
+        "</select></label>"
+      : "";
     const check = kind === "music"
       ? `<label class="ap-check"><input type="checkbox" data-k="loop" ${c.loop !== false ? "checked" : ""}> Loop to the end of the movie</label>`
       : `<label class="ap-check"><input type="checkbox" data-k="extend" ${c.extend !== false ? "checked" : ""}> Keep the scene on until it ends</label>`;
@@ -354,7 +416,7 @@
       <div class="ap-card-head"><div class="ap-name" title="${c.name}">${c.name}<em>${fmt(c.duration)}</em></div>
         <button type="button" data-act="play" title="Listen">${icon(preview?.id === c.id ? STOP : PLAY)}</button>
         <button type="button" data-act="remove" title="Remove">${icon(TRASH)}</button></div>
-      ${fields}${check}</div>`;
+      ${anchorField}${fields}${check}</div>`;
   }
 
   function refreshUI(recordingSeconds) {
@@ -387,6 +449,7 @@
     } else if (b.dataset.act === "record") toggleRecord();
   });
   // One undo step per slider drag or checkbox click.
+  panel.addEventListener("focusin", (e) => e.target.matches?.("select") && pushUndoSnapshot());
   panel.addEventListener("pointerdown", (e) => e.target.matches?.("input[type=range]") && pushUndoSnapshot());
   panel.addEventListener("click", (e) => e.target.matches?.("input[type=checkbox]") && pushUndoSnapshot(), true);
   panel.addEventListener("input", (e) => {
@@ -434,6 +497,8 @@
       return music;
     },
     clipsOf,
+    waveform,
+    anchorIndex,
     addMusic,
     addVoice,
     sceneMinEnd,

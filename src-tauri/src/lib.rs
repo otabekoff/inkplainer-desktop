@@ -51,6 +51,7 @@ pub fn run() {
     }
     builder
         .manage(SavedExports::default())
+        .manage(PickedExports::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -83,9 +84,11 @@ pub fn run() {
                 window.center()?;
             }
             window.set_focus()?;
+            #[cfg(windows)]
+            allow_own_microphone(&window);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![save_export, reveal_export, open_export])
+        .invoke_handler(tauri::generate_handler![save_export, pick_export_path, write_export, reveal_export, open_export])
         .run(tauri::generate_context!())
         .expect("error while running Inkplainer");
 }
@@ -122,6 +125,16 @@ async fn save_export(
         .map(|v| percent_decode_str(v).decode_utf8_lossy().into_owned())
         .unwrap_or_else(|| "whiteboard".into());
 
+    let Some(path) = ask_save_path(&app, &name)? else {
+        return Ok(None);
+    };
+    std::fs::write(&path, bytes).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    saved.0.lock().unwrap().insert(path.clone());
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// The "Save as" dialog, opened in Videos for videos and Pictures for images.
+fn ask_save_path(app: &AppHandle, name: &str) -> Result<Option<PathBuf>, String> {
     let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
     let (filter, folder) = match ext.as_str() {
         "mp4" => ("MP4 video", app.path().video_dir()),
@@ -129,21 +142,108 @@ async fn save_export(
         "png" => ("PNG image", app.path().picture_dir()),
         _ => ("File", app.path().download_dir()),
     };
-
-    let mut dialog = app.dialog().file().set_title("Save export").set_file_name(&name);
+    let mut dialog = app.dialog().file().set_title("Export video").set_file_name(name);
     if !ext.is_empty() {
         dialog = dialog.add_filter(filter, &[ext.as_str()]);
     }
     if let Ok(folder) = folder {
         dialog = dialog.set_directory(folder);
     }
-    let Some(target) = dialog.blocking_save_file() else {
-        return Ok(None);
+    match dialog.blocking_save_file() {
+        Some(target) => Ok(Some(target.into_path().map_err(|e| e.to_string())?)),
+        None => Ok(None),
+    }
+}
+
+/// Recording a voiceover is part of the app itself, so the app's own pages get the microphone
+/// without WebView2's extra "allow microphone?" prompt. (Windows' own privacy setting for
+/// microphone access still applies.) Other pages and other permissions are left alone.
+#[cfg(windows)]
+fn allow_own_microphone(window: &tauri::WebviewWindow) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
     };
-    let path: PathBuf = target.into_path().map_err(|e| e.to_string())?;
-    std::fs::write(&path, bytes).map_err(|e| format!("could not write {}: {e}", path.display()))?;
-    saved.0.lock().unwrap().insert(path.clone());
+    use webview2_com::PermissionRequestedEventHandler;
+    let _ = window.with_webview(|webview| unsafe {
+        let Ok(core) = webview.controller().CoreWebView2() else {
+            return;
+        };
+        let handler = PermissionRequestedEventHandler::create(Box::new(|_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+            args.PermissionKind(&mut kind)?;
+            if kind != COREWEBVIEW2_PERMISSION_KIND_MICROPHONE {
+                return Ok(());
+            }
+            let mut uri = windows_core::PWSTR::null();
+            args.Uri(&mut uri)?;
+            let uri = webview2_com::take_pwstr(uri);
+            let own = ["http://tauri.localhost", "https://tauri.localhost", "tauri://localhost", "http://127.0.0.1:", "http://localhost:"];
+            if own.iter().any(|prefix| uri.starts_with(prefix)) {
+                args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
+            }
+            Ok(())
+        }));
+        let mut token = 0i64;
+        let _ = core.add_PermissionRequested(&handler, &mut token);
+    });
+}
+
+/// Paths chosen with pick_export_path: the only places write_export writes to.
+#[derive(Default)]
+struct PickedExports(Mutex<HashSet<PathBuf>>);
+
+/// Asks where an export goes, before it is rendered (so the save comes first, not last).
+#[tauri::command]
+async fn pick_export_path(
+    app: AppHandle,
+    picked: tauri::State<'_, PickedExports>,
+    name: String,
+) -> Result<Option<String>, String> {
+    // Debug builds: INKPLAINER_TEST_EXPORT_DIR skips the dialog, for scripted tests.
+    let test_dir = cfg!(debug_assertions).then(|| std::env::var_os("INKPLAINER_TEST_EXPORT_DIR")).flatten();
+    let path = match test_dir {
+        Some(dir) => PathBuf::from(dir).join(&name),
+        None => match ask_save_path(&app, &name)? {
+            Some(path) => path,
+            None => return Ok(None),
+        },
+    };
+    picked.0.lock().unwrap().insert(path.clone());
     Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Writes an export to a path chosen with pick_export_path (header `x-path`), or next to it
+/// with another extension (header `x-ext`, e.g. the final frame as .png beside the video).
+/// The body is the file's bytes. Returns the path written.
+#[tauri::command]
+async fn write_export(
+    picked: tauri::State<'_, PickedExports>,
+    saved: tauri::State<'_, SavedExports>,
+    request: Request<'_>,
+) -> Result<String, String> {
+    let InvokeBody::Raw(bytes) = request.body() else {
+        return Err("expected the file's bytes as the request body".into());
+    };
+    let header = |name: &str| {
+        request
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| percent_decode_str(v).decode_utf8_lossy().into_owned())
+    };
+    let chosen = PathBuf::from(header("x-path").ok_or("missing x-path")?);
+    if !picked.0.lock().unwrap().contains(&chosen) {
+        return Err("not a path chosen for this export".into());
+    }
+    let target = match header("x-ext") {
+        Some(ext) if ext.chars().all(|c| c.is_ascii_alphanumeric()) && !ext.is_empty() => chosen.with_extension(ext),
+        Some(_) => return Err("bad extension".into()),
+        None => chosen,
+    };
+    std::fs::write(&target, bytes).map_err(|e| format!("could not write {}: {e}", target.display()))?;
+    saved.0.lock().unwrap().insert(target.clone());
+    Ok(target.to_string_lossy().into_owned())
 }
 
 fn saved_path(saved: &SavedExports, path: &str) -> Result<PathBuf, String> {

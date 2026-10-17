@@ -3866,10 +3866,8 @@ input[type="number"]:focus { border-color: var(--accent); }
         
         <div class="export-banner-actions">
           <button class="btn-export-action btn-export-primary" id="start-recording-btn" onclick="startRecording()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <circle cx="12" cy="12" r="4"/>
-            </svg>
-            Start Recording
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+            Export video
           </button>
         </div>
       </div>
@@ -3982,37 +3980,6 @@ input[type="number"]:focus { border-color: var(--accent); }
       </div>
     </div>
 
-    <!-- Canvas Size -->
-    <div class="bb-section" style="flex:2;min-width:0;">
-      <div class="bb-label" style="margin-bottom:0;">Canvas Size</div>
-      <div class="bb-size-group">
-        <div class="bb-size-block">
-          <div class="bb-size-subtitle">Aspect Ratio</div>
-          <div class="bb-size-row">
-            <div class="bb-ratio-btn active" data-ratio="16:9" onclick="bbSelectRatio(this)">
-              <div class="bb-ratio-thumb" style="width:14px;height:8px;"></div> 16:9
-            </div>
-            <div class="bb-ratio-btn" data-ratio="9:16" onclick="bbSelectRatio(this)">
-              <div class="bb-ratio-thumb" style="width:7px;height:12px;"></div> 9:16
-            </div>
-            <div class="bb-ratio-btn" data-ratio="1:1" onclick="bbSelectRatio(this)">
-              <div class="bb-ratio-thumb" style="width:10px;height:10px;"></div> 1:1
-            </div>
-          </div>
-        </div>
-        <div class="bb-size-block">
-          <div class="bb-size-subtitle">Resolution</div>
-          <div class="bb-size-row">
-            <div class="bb-res-btn active" data-res="720"  onclick="bbSelectRes(this)">720p</div>
-            <div class="bb-res-btn"        data-res="1080" onclick="bbSelectRes(this)">1080p</div>
-            <div class="bb-res-btn"        data-res="1440" onclick="bbSelectRes(this)" title="2K (1440p)">2K</div>
-            <div class="bb-res-btn"        data-res="2160" onclick="bbSelectRes(this)" title="4K (2160p, Ultra HD)">4K</div>
-          </div>
-          <div class="bb-size-readout" id="bb-size-readout">1280 × 720</div>
-        </div>
-      </div>
-    </div>
-
   </div><!-- /bottom-bar -->
 </div><!-- /main -->
 
@@ -4051,6 +4018,37 @@ input[type="number"]:focus { border-color: var(--accent); }
         <div class="drop-secondary">PNG, JPG, GIF, SVG · Multiple files OK</div>
       </div>
       <input type="file" id="file-input" accept="image/*" multiple>
+
+      <!-- Canvas Size -->
+      <div class="side-size" id="side-size">
+        <div class="section-label">Canvas Size</div>
+        <div class="bb-size-group">
+          <div class="bb-size-block">
+            <div class="bb-size-subtitle">Aspect Ratio</div>
+            <div class="bb-size-row">
+              <div class="bb-ratio-btn active" data-ratio="16:9" onclick="bbSelectRatio(this)">
+                <div class="bb-ratio-thumb" style="width:14px;height:8px;"></div> 16:9
+              </div>
+              <div class="bb-ratio-btn" data-ratio="9:16" onclick="bbSelectRatio(this)">
+                <div class="bb-ratio-thumb" style="width:7px;height:12px;"></div> 9:16
+              </div>
+              <div class="bb-ratio-btn" data-ratio="1:1" onclick="bbSelectRatio(this)">
+                <div class="bb-ratio-thumb" style="width:10px;height:10px;"></div> 1:1
+              </div>
+            </div>
+          </div>
+          <div class="bb-size-block">
+            <div class="bb-size-subtitle">Resolution</div>
+            <div class="bb-size-row">
+              <div class="bb-res-btn active" data-res="720"  onclick="bbSelectRes(this)">720p</div>
+              <div class="bb-res-btn"        data-res="1080" onclick="bbSelectRes(this)">1080p</div>
+              <div class="bb-res-btn"        data-res="1440" onclick="bbSelectRes(this)" title="2K (1440p)">2K</div>
+              <div class="bb-res-btn"        data-res="2160" onclick="bbSelectRes(this)" title="4K (2160p, Ultra HD)">4K</div>
+            </div>
+            <div class="bb-size-readout" id="bb-size-readout">1280 × 720</div>
+          </div>
+        </div>
+      </div>
 
       <!-- Background section -->
       <div style="margin-top:14px">
@@ -10850,6 +10848,7 @@ function obEnd() {
 })();
 </script>
 <link href="features/features.css" rel="stylesheet">
+<script src="features/slider-fill.js"></script>
 <script src="features/clock.js"></script>
 <script src="features/editor-view.js"></script>
 <script src="features/image-input.js"></script>

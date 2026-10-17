@@ -183,6 +183,22 @@
     return originalDrawHand.apply(this, args);
   };
 
+  // The play bar shows elapsed / total time of the scene instead of a percentage.
+  const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  const originalSetProgress = window.setProgress;
+  window.setProgress = function (...args) {
+    const r = originalSetProgress.apply(this, args);
+    if (!inkClock.manual) {
+      const label = document.getElementById("time-display");
+      const total = sceneLength();
+      if (label && total > 0) {
+        const done = Math.min(1, Math.max(0, getExportAnimationProgress()));
+        label.textContent = `${fmtTime(done * total)} / ${fmtTime(total)}`;
+      }
+    }
+    return r;
+  };
+
   // ── Tracks view ───────────────────────────────────────────────────────────
   const board = document.getElementById("storyboard");
   const stepsView = board?.querySelector(".tl-view");
@@ -270,16 +286,28 @@
     }
     html += "</div>";
     // Audio rows: this scene's voiceover clips (drag to set when each starts) and the music.
-    const clips = window.inkAudio?.clipsOf(inkScenes.currentScene) || [];
-    const musicTracks = window.inkAudio?.music || [];
+    const audio = window.inkAudio;
+    const clips = audio?.clipsOf(inkScenes.currentScene) || [];
+    const here = inkScenes.current;
+    // Music that plays in this scene: anchored here (draggable), or carried over from earlier.
+    const musicTracks = (audio?.music || []).filter((m) => audio.anchorIndex(m) <= here);
     const audioRows = clips.length + musicTracks.length;
+    const wave = (clip, width) => {
+      const url = audio?.waveform(clip);
+      return url ? `background-image:url(${url});background-size:${Math.max(18, width)}px 100%;` : "";
+    };
     for (const c of clips) {
+      const w = (c.duration || 1) * pps;
       html += `<div class="tk-row tk-audio" style="width:${width}px"><div class="tk-label" style="width:${LABEL_W}px"><span>🎙 Voiceover</span></div>
-        <div class="tk-bar voice" data-clip="${c.id}" style="left:${LABEL_W + (c.start || 0) * pps}px;width:${Math.max(18, (c.duration || 1) * pps)}px"><span class="tk-bar-text"></span></div></div>`;
+        <div class="tk-bar voice" data-clip="${c.id}" style="left:${LABEL_W + (c.start || 0) * pps}px;width:${Math.max(18, w)}px;${wave(c, w)}"><span class="tk-bar-text"></span></div></div>`;
     }
     for (const m of musicTracks) {
+      const anchoredHere = audio.anchorIndex(m) === here;
+      const start = anchoredHere ? m.start || 0 : 0;
+      const one = (m.duration || 1) * pps;
+      const w = m.loop !== false || !anchoredHere ? seconds * pps - start * pps : one;
       html += `<div class="tk-row tk-audio" style="width:${width}px"><div class="tk-label" style="width:${LABEL_W}px"><span>♪ Music</span></div>
-        <div class="tk-bar music" data-music="${m.id}" style="left:${LABEL_W}px;width:${seconds * pps}px"><span class="tk-bar-text"></span></div></div>`;
+        <div class="tk-bar music${anchoredHere ? "" : " earlier"}" data-music="${m.id}" style="left:${LABEL_W + start * pps}px;width:${Math.max(18, w)}px;${wave(m, one)}"><span class="tk-bar-text"></span></div></div>`;
     }
     for (const l of [...layers].reverse()) {
       const start = startOf(l, seq);
@@ -302,7 +330,8 @@
     }
     for (const m of musicTracks) {
       const el = area.querySelector(`.tk-bar.music[data-music="${m.id}"] .tk-bar-text`);
-      if (el) el.textContent = `${m.name}${m.start ? ` · from ${m.start}s into the movie` : ""}`;
+      const anchoredHere = audio.anchorIndex(m) === here;
+      if (el) el.textContent = anchoredHere ? `${m.name} · starts ${(m.start || 0).toFixed(1)}s` : `${m.name} · continues from scene ${audio.anchorIndex(m) + 1}`;
     }
     for (const l of layers) {
       const row = area.querySelector(`.tk-row[data-id="${l.id}"]`);
@@ -332,7 +361,13 @@
       drag = { voice, x: e.clientX, from: voice.start || 0, before: _serializeState(), moved: false };
       return;
     }
-    if (bar?.classList.contains("music")) return;
+    if (bar?.dataset.music) {
+      const m = window.inkAudio.music.find((x) => x.id === Number(bar.dataset.music));
+      if (!m || window.inkAudio.anchorIndex(m) !== inkScenes.current) return;
+      e.preventDefault();
+      drag = { voice: m, music: true, x: e.clientX, from: m.start || 0, before: _serializeState(), moved: false };
+      return;
+    }
     if (row && !bar && row.dataset.id) return selectLayer(Number(row.dataset.id));
     if (!bar) return;
     const layer = getLayerById(Number(bar.dataset.id));
@@ -356,7 +391,7 @@
     if (drag.voice) {
       drag.moved = true;
       drag.voice.start = Math.max(0, snap(drag.from + dx / pps, e.shiftKey));
-      const vb = area.querySelector(`.tk-bar.voice[data-clip="${drag.voice.id}"]`);
+      const vb = area.querySelector(drag.music ? `.tk-bar.music[data-music="${drag.voice.id}"]` : `.tk-bar.voice[data-clip="${drag.voice.id}"]`);
       if (vb) vb.style.left = `${LABEL_W + drag.voice.start * pps}px`;
       return;
     }
@@ -418,7 +453,25 @@
     pushUndoSnapshot(d.before);
     scheduleAutoSave();
     render();
+    if (d.edge) smoothStretch(d.layer);
   });
+
+  // A big stretch is smoother with a matching Speed (the rate then only fine-tunes). When the
+  // set length is far from the natural one, find that speed and use it.
+  async function smoothStretch(layer) {
+    const natural = naturalOf(layer);
+    if (!(layer.duration > 0) || !(natural > 0)) return;
+    const rate = natural / layer.duration;
+    if (rate > 0.6 && rate < 1.7) return;
+    const speed = await inkTimeline.fitSpeed(layer, layer.duration);
+    if (speed == null || speed === layer.speed) return;
+    layer.speed = speed;
+    layer.durationBase = inkTimeline.durationOf(layer);
+    layer.durationSig = inkTimeline.signature(layer);
+    if (layer.id === state.selectedLayerId) syncSidebarToLayer(layer.id);
+    scheduleAutoSave();
+    render();
+  }
   // Double-click a bar's edge: back to the layer's natural length.
   area.addEventListener("dblclick", (e) => {
     const edge = e.target.closest("[data-edge]");

@@ -27,8 +27,10 @@ by NadirWeb-App and is now a fork that grows VideoScribe-style features on top o
   big ones, zooms out at the end. Per layer: auto, close-up or wide. Can be previewed in the editor.
 - **Timeline** of each scene: steps (reorder, play together, pauses) or **tracks**, where every
   layer is a bar on a time ruler: drag it to change when it starts, drag its edges to change how
-  long it takes; things can overlap or wait. Durations are timed automatically.
-- **Audio:** music tracks and voiceover clips per scene (import or record), in the editor, the
+  long it takes; things can overlap or wait. Durations are timed automatically, and a big stretch
+  slows the drawing itself so it stays smooth.
+- **Audio:** music tracks (each starts in a chosen scene) and voiceover clips per scene (import
+  or record), shown with waveforms in Tracks, where they can be dragged; in the editor, the
   movie preview and export.
 - 19 background presets (whiteboard, paper, notebook, graph, dot grid, chalkboard, blueprint,
   kraft, cork, gradients, …) and image backgrounds (cover, fit, stretch, tile, with a wash).
@@ -42,6 +44,8 @@ by NadirWeb-App and is now a fork that grows VideoScribe-style features on top o
 - MP4 (H.264) or WebM (VP9) at 24, 30 or 60 fps; canvas sizes 720p, 1080p, 2K and 4K in
   16:9, 9:16 and 1:1; export at the canvas size or smaller (a 4K canvas exported at 1080p keeps
   camera close-ups sharp).
+- One step to export: pick where to save, the video renders and is written there (with a PNG of
+  the final frame), then a dialog offers to play it or open its folder.
 - Frame-exact: the movie is rendered frame by frame on a virtual clock, so no frame is dropped
   and the video plays exactly like the preview, at the same speed on any monitor.
 - GPU: uses the discrete GPU on laptops with two, and the hardware video encoder, falling back

@@ -141,6 +141,44 @@
     }
   }
 
+  // Picks the Speed whose natural length is closest to `target` seconds (a binary search over
+  // timed runs, each cached), so a stretched layer needs little extra time-stretching and
+  // keeps drawing smoothly. Returns the speed, or null when timing is not possible right now.
+  async function fitSpeed(layer, target) {
+    if (running || busyNow()) return null;
+    running = true;
+    status.textContent = "Timing…";
+    showCover();
+    const at = async (speed) => {
+      const probe = { ...layer, speed };
+      const sig = signature(probe);
+      if (!durations.has(sig)) durations.set(sig, await timeLayer(probe));
+      return durations.get(sig);
+    };
+    try {
+      let lo = 1;
+      let hi = 100;
+      let best = { speed: layer.speed ?? 40, error: Math.abs((await at(layer.speed ?? 40)) - target) };
+      for (let i = 0; i < 7 && hi - lo > 1; i++) {
+        const mid = Math.round((lo + hi) / 2);
+        const d = await at(mid);
+        if (Math.abs(d - target) < best.error) best = { speed: mid, error: Math.abs(d - target) };
+        if (d > target) lo = mid; // still too long: draw faster
+        else hi = mid;
+      }
+      return best.speed;
+    } catch (err) {
+      console.error("Fitting speed failed:", err);
+      return null;
+    } finally {
+      hideCover();
+      running = false;
+      redrawLayersOnCanvas();
+      drawSelectionHandles();
+      render();
+    }
+  }
+
   // ── UI ────────────────────────────────────────────────────────────────────
   const board = document.getElementById("storyboard");
   if (!board) return;
@@ -347,5 +385,5 @@
     ),
   );
 
-  window.inkTimeline = { pauseAfter, steps, render, durationOf, effectiveDuration, signature, timeNow: timePending };
+  window.inkTimeline = { pauseAfter, steps, render, durationOf, effectiveDuration, signature, fitSpeed, timeNow: timePending };
 })();

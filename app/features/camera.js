@@ -215,6 +215,7 @@
     const sec = document.createElement("div");
     sec.className = "bb-section";
     sec.id = "bb-camera";
+    sec.title = "Close-ups stay sharp on a 2K or 4K canvas exported at 1080p";
     sec.style.cssText = "flex:2;min-width:0;";
     sec.innerHTML = `
       <div class="bb-label">Camera <span class="bb-camera-scope">this scene</span></div>

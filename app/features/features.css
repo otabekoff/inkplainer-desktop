@@ -611,3 +611,174 @@
 .ap-add button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border: 1px solid var(--border-hi); border-radius: var(--r-ctl); background: var(--sidebar); color: var(--text); font: 500 11px "Geist", sans-serif; cursor: pointer; }
 .ap-add button:hover { border-color: var(--accent); }
 .ap-add .ap-primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+
+/* ── Panel polish (round 6) ────────────────────────────────────────────────── */
+/* Tabs: one size, and a divider after the column. */
+.sb-tabs {
+  align-self: stretch;
+  justify-content: center;
+  gap: 6px;
+  padding-right: 12px;
+  margin-right: 2px;
+  border-right: 1px solid var(--border);
+}
+.sb-tabs button {
+  width: 104px;
+  height: 32px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1;
+}
+
+/* Actions: an even stack on the right, with its own divider. */
+.sb-actions {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: stretch;
+  gap: 8px;
+  width: 168px;
+  flex-shrink: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+.sb-actions > * { margin: 0 !important; }
+.sb-actions .tk-switch { order: 1; }
+.sb-actions .tl-status { order: 2; text-align: center; margin: 0; }
+.sb-actions .sb-audio { order: 3; }
+.sb-actions .sb-play { order: 4; }
+.sb-audio,
+.sb-play {
+  height: 36px;
+  justify-content: center;
+  width: 100%;
+}
+.tk-switch { width: 100%; }
+.tk-switch button { flex: 1; }
+
+/* Settings row: sections keep their width; a narrow window scrolls instead of overlapping. */
+#storyboard > #bottom-bar { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+#storyboard > #bottom-bar .bb-section { flex: 1 0 auto; min-width: max-content; padding: 10px 16px; }
+#storyboard > #bottom-bar .bb-hand-pill { white-space: nowrap; }
+#storyboard.show-settings > #bottom-bar { display: flex; }
+
+/* Play bar over the canvas. */
+#playbar {
+  padding: 6px 14px 6px 6px;
+  gap: 10px;
+  min-width: 380px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid var(--border-hi);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+#playbar .restart-btn {
+  width: 32px; height: 32px;
+  border: 1px solid var(--border-hi);
+  border-radius: 999px;
+  background: var(--sidebar);
+  color: var(--muted-hi);
+}
+#playbar .restart-btn:hover { color: var(--text); border-color: var(--accent); }
+#playbar .play-btn { width: 36px; height: 36px; border-radius: 999px; }
+#progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+  cursor: pointer;
+  transition: height 0.12s;
+}
+#progress-track:hover { height: 8px; }
+#progress-fill { height: 100%; border-radius: 999px; background: var(--accent); }
+#time-display {
+  min-width: 78px;
+  text-align: right;
+  font: 600 11px "Geist", sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-hi);
+}
+#export-progress-detail { margin-top: 4px; font-size: 10.5px; color: var(--muted-hi); font-variant-numeric: tabular-nums; }
+.ap-field select { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid var(--border-hi); border-radius: var(--r-ctl); background: var(--sidebar); color: var(--text); font: 11px "Geist", sans-serif; }
+.tk-bar.voice, .tk-bar.music { background-repeat: repeat-x; background-position: left center; }
+.tk-bar.music { cursor: grab; }
+.tk-bar.music.earlier { cursor: default; opacity: 0.6; background-color: #eef6f0; }
+
+/* Settings row, take two: the sections carry inline min-width:0, which beat the rule above. */
+#storyboard > #bottom-bar .bb-section {
+  flex: 0 0 auto !important;
+  min-width: max-content !important;
+  justify-content: center;
+}
+#storyboard > #bottom-bar .bb-hand-row { grid-template-columns: repeat(4, auto); }
+#storyboard > #bottom-bar .bb-hand-pill { padding-left: 10px; padding-right: 10px; }
+#storyboard > #bottom-bar .bb-sliders { min-width: 200px; }
+
+/* Camera in two columns: mode and opening on the left, zoom and options on the right. */
+#bb-camera {
+  display: grid !important;
+  grid-template-columns: auto 210px;
+  grid-template-rows: auto auto auto;
+  column-gap: 14px;
+  row-gap: 6px;
+  align-content: center;
+}
+#bb-camera > .bb-label { grid-column: 1 / -1; margin-bottom: 0; }
+#bb-camera > .bb-camera-mode { grid-column: 1; grid-row: 2; margin: 0; }
+#bb-camera > .bb-camera-opening { grid-column: 1; grid-row: 3; margin: 0; }
+#bb-camera > .bb-camera-opts { grid-column: 2; grid-row: 2 / span 2; margin: 0; gap: 3px; }
+#bb-camera > .bb-camera-tip { display: none !important; }
+#bb-camera .bb-camera-end { margin-top: 0; white-space: nowrap; }
+
+/* Settings row, compact: fits between the tabs and the actions at normal window sizes. */
+#storyboard > #bottom-bar .bb-section { padding: 8px 14px; gap: 6px; }
+#storyboard > #bottom-bar .bb-hand-row { grid-template-columns: repeat(4, auto); gap: 4px; }
+#storyboard > #bottom-bar .bb-hand-pill { padding: 5px 9px; font-size: 11px; }
+#storyboard > #bottom-bar .bb-sliders { min-width: 0; }
+#storyboard > #bottom-bar .bb-slider-row input[type="range"] { width: 120px; flex: none; }
+#bb-camera { grid-template-columns: auto auto; }
+/* Camera details only while the camera is on (they did nothing while it was off). */
+#bb-camera .bb-camera-opening.disabled,
+#bb-camera .bb-camera-opts.disabled { display: none !important; }
+#bb-camera .bb-camera-opening button { padding: 4px 7px; }
+#bb-camera .bb-camera-opts .bb-slider-row input[type="range"] { width: 100px; }
+
+/* Canvas size lives in the right sidebar, next to Canvas background. */
+.side-size { margin-top: 14px; }
+.side-size .bb-size-group { flex-direction: row; gap: 14px; align-items: flex-start; }
+.side-size .bb-size-block { width: auto; gap: 6px; }
+.side-size .bb-size-subtitle { font-size: 9px; }
+.side-size .bb-size-row { gap: 4px; }
+.side-size .bb-ratio-btn, .side-size .bb-res-btn { font-size: 11px; padding: 5px 8px; }
+.side-size .bb-size-readout { font-size: 10px; }
+
+/* Settings row: three sections share the width instead of scrolling. */
+#storyboard > #bottom-bar { overflow: hidden; }
+#storyboard > #bottom-bar .bb-section { flex: 1 1 auto !important; min-width: 0 !important; }
+#storyboard > #bottom-bar .bb-section:first-child { flex-grow: 1.4 !important; }
+#storyboard > #bottom-bar .bb-hand-row { grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)); }
+#storyboard > #bottom-bar .bb-slider-row input[type="range"] { width: auto; flex: 1 1 60px; min-width: 60px; max-width: 160px; }
+#bb-camera { grid-template-columns: auto minmax(0, 1fr); }
+#bb-camera .bb-camera-opts .bb-slider-row input[type="range"] { width: auto; flex: 1 1 60px; min-width: 50px; }
+
+/* Two columns: Hand style over Speed on the left, Camera stacked on the right. The row is short on width, not height. */
+#storyboard.show-settings > #bottom-bar {
+  display: grid !important;
+  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-content: center;
+}
+#storyboard > #bottom-bar .bb-section { padding: 6px 14px; }
+#storyboard > #bottom-bar > .bb-section:nth-child(1) { grid-column: 1; grid-row: 1; border-right: 0; }
+#storyboard > #bottom-bar > .bb-section:nth-child(2) { grid-column: 1; grid-row: 2; border-right: 0; }
+#storyboard > #bottom-bar > #bb-camera { grid-column: 2; grid-row: 1 / span 2; border-left: 1px solid var(--border); align-self: stretch; }
+#storyboard > #bottom-bar .bb-hand-row { grid-template-columns: repeat(4, auto); }
+#storyboard > #bottom-bar .bb-slider-row input[type="range"] { flex: 1 1 auto; max-width: none; }
+#bb-camera { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: none; align-content: center; }
+#bb-camera > .bb-label, #bb-camera > .bb-camera-mode, #bb-camera > .bb-camera-opening, #bb-camera > .bb-camera-opts { grid-column: 1; grid-row: auto; }
+#bb-camera .bb-camera-end { white-space: normal; }

@@ -135,10 +135,12 @@
     const scenes = inkScenes.list.length;
     let progress = 0;
     let scene = 0;
+    // One progress line (rendering is the first 92%), with the details underneath.
     const status = () => {
-      const what = scenes > 1 ? `scene ${scene + 1} of ${scenes}` : `${Math.round(progress * 100)}%`;
-      progressText.textContent = `Rendering ${what} · ${enc.label} ${W}×${H} ${fps} fps, ${mbps} Mbps on ${where}`;
-      progressBar.style.width = `${Math.round(progress * 95)}%`;
+      const pct = Math.round(progress * 92);
+      progressText.textContent = `Exporting… ${pct}%`;
+      progressBar.style.width = `${pct}%`;
+      detail(progressText, `${scenes > 1 ? `Scene ${scene + 1} of ${scenes} · ` : ""}${enc.label} ${W}×${H} · ${fps} fps · ${mbps} Mbps · ${where}`);
     };
     status();
     let lastBreath = native.perfNow();
@@ -178,7 +180,8 @@
         },
       });
 
-      progressText.textContent = `Finishing ${format.toUpperCase()}…`;
+      progressText.textContent = "Exporting… 93%";
+      progressBar.style.width = "93%";
       await encoder.flush();
       if (encoderError) throw encoderError;
 
@@ -214,7 +217,8 @@
   // Opus for WebM. Returns null when there is nothing to hear.
   async function encodeAudio(format, duration, sceneStarts, progressText) {
     const sampleRate = 48000;
-    progressText.textContent = "Mixing audio…";
+    progressText.textContent = "Exporting… 95%";
+    detail(progressText, "Mixing the soundtrack");
     const mixed = await window.inkAudio.mix(duration, sceneStarts, sampleRate);
     if (!mixed) return null;
     const choices = format === "mp4" ? [["mp4a.40.2", "aac"], ["opus", "opus"]] : [["opus", "A_OPUS"]];
@@ -254,25 +258,105 @@
     return { chunks, sampleRate, muxerCodec: picked.muxerCodec };
   }
 
-  async function exportVideo(format, progressText, progressBar) {
-    let blob;
+  // A small second line under the progress text, for details.
+  function detail(progressText, text) {
+    let el = document.getElementById("export-progress-detail");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "export-progress-detail";
+      progressText.after(el);
+    }
+    el.textContent = text;
+  }
+
+  // Renders the movie to a video Blob (on the CPU again if the GPU encoder fails mid-way).
+  async function exportBlob(format, progressText, progressBar) {
     try {
-      blob = await render(format, progressText, progressBar, true);
+      return await render(format, progressText, progressBar, true);
     } catch (err) {
       if (!(err instanceof HardwareEncoderFailed)) throw err;
       console.warn("Hardware encoder failed, rendering again on the CPU:", err.message);
-      blob = await render(format, progressText, progressBar, false);
+      return render(format, progressText, progressBar, false);
     }
+  }
+
+  async function exportVideo(format, progressText, progressBar) {
+    const blob = await exportBlob(format, progressText, progressBar);
     const a = document.createElement("a");
-    const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
     a.href = URL.createObjectURL(blob);
-    a.download = `whiteboard-${stamp}.${format}`;
+    a.download = `${fileBase()}.${format}`;
     a.click();
     native.setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
   }
 
   window.recordMP4 = (progressText, progressBar) => exportVideo("mp4", progressText, progressBar);
   window.recordWebM = (progressText, progressBar) => exportVideo("webm", progressText, progressBar);
+
+  // A file name from the project name.
+  function fileBase() {
+    const name = (document.getElementById("project-name-display")?.textContent || "").trim();
+    return name.replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, " ").slice(0, 80) || "whiteboard";
+  }
+
+  // The movie's last picture (the final scene, finished), for "Also export final frame".
+  function finalFrame() {
+    const pic = inkScenes.picture(inkScenes.list.length - 1, state.canvasH);
+    return new Promise((resolve) => pic.toBlob(resolve, "image/png"));
+  }
+
+  // ── Export in three steps: options → where to save → progress → saved ─────
+  // (The app used to render first, show a success message, then ask where to save, then show
+  // the saved dialog.) Choosing the file first means the export ends where it began.
+  const tauri = window.__TAURI__;
+  if (tauri) {
+    const { invoke } = tauri.core;
+    const write = async (path, blob, ext) =>
+      invoke("write_export", new Uint8Array(await blob.arrayBuffer()), {
+        headers: { "x-path": encodeURIComponent(path), ...(ext ? { "x-ext": ext } : {}) },
+      });
+    window.startRecording = async function () {
+      const format = state.exportFormat === "webm" ? "webm" : "mp4";
+      const startBtn = document.getElementById("start-recording-btn");
+      const controls = document.getElementById("export-banner-controls");
+      const progressBox = document.getElementById("export-progress-container");
+      const progressText = document.getElementById("export-progress-text");
+      const progressBar = document.getElementById("export-progress-bar");
+      startBtn.disabled = true;
+      let path = null;
+      try {
+        path = await invoke("pick_export_path", { name: `${fileBase()}.${format}` });
+      } finally {
+        startBtn.disabled = false;
+      }
+      if (!path) return; // the Save dialog was cancelled: stay on the options
+      controls.style.display = "none";
+      progressBox.classList.add("active");
+      startBtn.disabled = true;
+      progressText.textContent = "Exporting… 0%";
+      progressBar.style.width = "0%";
+      try {
+        const blob = await exportBlob(format, progressText, progressBar);
+        if (window.__inkTest) window.__inkTest.blob = blob; // scripted tests read the result
+        progressText.textContent = "Saving…";
+        detail(progressText, "Writing the file");
+        progressBar.style.width = "98%";
+        const saved = await write(path, blob);
+        if (state.exportPNG) await write(path, await finalFrame(), "png");
+        progressBar.style.width = "100%";
+        closeExportBanner();
+        window.showExportSaved?.(saved);
+      } catch (err) {
+        if (!/cancel/i.test(err?.message || "")) {
+          console.error("Export failed:", err);
+          showToast(`Export failed: ${err.message || err}`, null, 5000);
+        }
+      } finally {
+        controls.style.display = "block";
+        progressBox.classList.remove("active");
+        startBtn.disabled = false;
+      }
+    };
+  }
 
   // ── Export dialog ─────────────────────────────────────────────────────────
   // MP4 always works here, so make it the default; show real bitrates and a frame-rate choice.
