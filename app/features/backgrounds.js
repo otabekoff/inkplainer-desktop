@@ -312,6 +312,8 @@
     },
   ];
   const BY_KEY = Object.fromEntries(PRESETS.map((p) => [p.key, p]));
+  // For thumbnails elsewhere (template gallery): draw a preset at any size.
+  window.inkBackgrounds = { draw: (key, c, W, H) => BY_KEY[key]?.draw(c, W, H), keys: PRESETS.map((p) => p.key) };
 
   // ── Cached drawing, registered into the app's BG_GRADIENTS table ─────────
   const cache = new Map();
