@@ -1,11 +1,19 @@
 //! Inkplainer desktop: hosts the (offline-patched) web app in a frameless window.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use percent_encoding::percent_decode_str;
 use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
+
+/// Files saved by save_export in this session: the only paths reveal/open accept, so the
+/// page cannot ask Windows to open arbitrary files.
+#[derive(Default)]
+struct SavedExports(Mutex<HashSet<PathBuf>>);
 
 /// Window size the app opens at, in logical pixels, when the screen has room for it.
 const PREFERRED: (f64, f64) = (1440.0, 900.0);
@@ -42,7 +50,9 @@ pub fn run() {
         }));
     }
     builder
+        .manage(SavedExports::default())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let (width, height) = initial_size(app.handle());
             // Debug builds expose DevTools on a port (INKPLAINER_DEVTOOLS_PORT, default 9229)
@@ -75,7 +85,7 @@ pub fn run() {
             window.set_focus()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![save_export])
+        .invoke_handler(tauri::generate_handler![save_export, reveal_export, open_export])
         .run(tauri::generate_context!())
         .expect("error while running Inkplainer");
 }
@@ -94,9 +104,14 @@ fn initial_size(app: &AppHandle) -> (f64, f64) {
 }
 
 /// Saves an exported video or image. The body is the file's bytes and the
-/// `x-file-name` header its suggested name. Returns false when the user cancels.
+/// `x-file-name` header its suggested name. Returns where it was saved, or None when the
+/// user cancels.
 #[tauri::command]
-async fn save_export(app: AppHandle, request: Request<'_>) -> Result<bool, String> {
+async fn save_export(
+    app: AppHandle,
+    saved: tauri::State<'_, SavedExports>,
+    request: Request<'_>,
+) -> Result<Option<String>, String> {
     let InvokeBody::Raw(bytes) = request.body() else {
         return Err("expected the file's bytes as the request body".into());
     };
@@ -123,9 +138,37 @@ async fn save_export(app: AppHandle, request: Request<'_>) -> Result<bool, Strin
         dialog = dialog.set_directory(folder);
     }
     let Some(target) = dialog.blocking_save_file() else {
-        return Ok(false);
+        return Ok(None);
     };
     let path: PathBuf = target.into_path().map_err(|e| e.to_string())?;
     std::fs::write(&path, bytes).map_err(|e| format!("could not write {}: {e}", path.display()))?;
-    Ok(true)
+    saved.0.lock().unwrap().insert(path.clone());
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+fn saved_path(saved: &SavedExports, path: &str) -> Result<PathBuf, String> {
+    let path = PathBuf::from(path);
+    if !saved.0.lock().unwrap().contains(&path) {
+        return Err("not a file exported in this session".into());
+    }
+    if !path.exists() {
+        return Err(format!("{} no longer exists", path.display()));
+    }
+    Ok(path)
+}
+
+/// Shows an exported file selected in File Explorer.
+#[tauri::command]
+fn reveal_export(app: AppHandle, saved: tauri::State<'_, SavedExports>, path: String) -> Result<(), String> {
+    let path = saved_path(&saved, &path)?;
+    app.opener().reveal_item_in_dir(&path).map_err(|e| e.to_string())
+}
+
+/// Opens an exported file in its default app (the video player for MP4/WebM).
+#[tauri::command]
+fn open_export(app: AppHandle, saved: tauri::State<'_, SavedExports>, path: String) -> Result<(), String> {
+    let path = saved_path(&saved, &path)?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| e.to_string())
 }

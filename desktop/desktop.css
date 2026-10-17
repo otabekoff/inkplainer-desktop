@@ -49,3 +49,51 @@
 
 /* Like a native title bar, dim the controls while the window is in the background. */
 body.win-blurred #win-controls button:not(:hover) { color: var(--muted); }
+
+/* "Video saved" dialog after an export. */
+#export-saved {
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  display: none;
+  place-items: center;
+  background: rgba(17, 17, 17, 0.35);
+  backdrop-filter: blur(3px);
+}
+#export-saved.show { display: grid; }
+.es-card {
+  width: min(440px, calc(100vw - 32px));
+  padding: 26px 26px 20px;
+  background: var(--sidebar);
+  border: 1px solid var(--border-hi);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.22);
+  text-align: center;
+  font-family: "Geist", sans-serif;
+}
+.es-icon {
+  width: 46px; height: 46px; margin: 0 auto 12px;
+  display: grid; place-items: center;
+  border-radius: 999px;
+  background: rgba(22, 163, 74, 0.12);
+  color: var(--success);
+}
+.es-title { font-size: 17px; font-weight: 600; color: var(--text); }
+.es-file { margin-top: 10px; font-size: 13px; font-weight: 500; color: var(--text); word-break: break-all; }
+.es-folder { margin-top: 3px; font-size: 11.5px; color: var(--muted-hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.es-actions { display: flex; gap: 8px; margin-top: 20px; }
+.es-actions button {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hi);
+  border-radius: 8px;
+  background: var(--sidebar);
+  color: var(--text);
+  font: 600 12.5px "Geist", sans-serif;
+  cursor: pointer;
+}
+.es-actions button:hover { border-color: var(--accent); }
+.es-actions .es-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.es-actions .es-primary:hover { background: #000; }
+.es-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.es-error { margin-top: 10px; font-size: 11px; color: var(--accent2); min-height: 0; }
