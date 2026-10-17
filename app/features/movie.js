@@ -170,9 +170,13 @@
           hctx.clearRect(0, 0, state.canvasW, state.canvasH);
         }
 
-        // Transition in, over the new scene's first (still) frame.
+        // Transition in, over the new scene's first (still) frame. Starting part-way, the
+        // previous scene's finished picture stands in for its last frame.
         const tr = scene.transition;
-        if (si > from && tr && tr.type !== "cut" && tr.duration > 0) {
+        if (si === from && from > 0 && tr && tr.type !== "cut") {
+          pctx.drawImage(inkScenes.picture(from - 1, state.canvasH), 0, 0, W, H);
+        }
+        if (si > 0 && tr && tr.type !== "cut" && tr.duration > 0) {
           const n = Math.max(1, Math.round(tr.duration * fps));
           composeScene(sctx2, W, H, time());
           for (let f = 0; f < n; f++) {

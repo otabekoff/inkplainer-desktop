@@ -225,13 +225,14 @@
 
   // ── Thumbnails ────────────────────────────────────────────────────────────
   const THUMB_H = 54;
-  function thumbFor(scene, isCurrent) {
+  // The scene's finished picture (background and every visible layer) at the given height.
+  function thumbFor(scene, isCurrent, height = THUMB_H) {
     const W = state.canvasW;
     const H = state.canvasH;
-    const k = THUMB_H / H;
+    const k = height / H;
     const c = document.createElement("canvas");
     c.width = Math.max(1, Math.round(W * k));
-    c.height = THUMB_H;
+    c.height = height;
     const t = c.getContext("2d");
     t.imageSmoothingQuality = "high";
     if (isCurrent && !state.playing && !state._activeSlots?.length) {
@@ -287,6 +288,7 @@
     plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
     copy: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/>',
     trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>',
+    play: '<path d="M7 4.5v15l12-7.5z" fill="currentColor" stroke="none"/>',
   };
   const svg = (n, s = 12) =>
     `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icons[n]}</svg>`;
@@ -322,10 +324,11 @@
       card.appendChild(label);
       const tools = document.createElement("div");
       tools.className = "sb-tools";
-      tools.innerHTML = `<button type="button" data-act="dup" title="Duplicate scene">${svg("copy")}</button><button type="button" data-act="del" title="Delete scene">${svg("trash")}</button>`;
+      tools.innerHTML = `<button type="button" data-act="play" title="Play from this scene (with its transition in)">${svg("play")}</button><button type="button" data-act="dup" title="Duplicate scene">${svg("copy")}</button><button type="button" data-act="del" title="Delete scene">${svg("trash")}</button>`;
       card.appendChild(tools);
       card.addEventListener("click", (e) => {
         const act = e.target.closest("[data-act]")?.dataset.act;
+        if (act === "play") return window.inkPlayer?.play({ from: i });
         if (act === "dup") return addScene(i, scenes[i]);
         if (act === "del") return deleteScene(i);
         activate(i);
@@ -470,6 +473,17 @@
     },
     activate,
     render,
+    /** The finished picture of scene i (background and layers) at the given height. */
+    picture: (i, height) => thumbFor(scenes[i], false, height),
+    /** Adds an empty scene after the current one and switches to it. */
+    add: () => addScene(current),
+    /** Drops every scene's undo history (after building a project from a template). */
+    clearHistory() {
+      for (const s of scenes) {
+        s.undo = [];
+        s.redo = [];
+      }
+    },
   };
 
   scenes = [newScene()];

@@ -3,7 +3,7 @@
 //  - drag a step between others to move it; drop it onto another step to play together
 //  - drag a single layer out of a step to give it a step of its own
 //  - the chip after each step sets a pause before the next one (layer.pauseAfter)
-//  - "Measure timing" renders the scene quickly to show how long each step takes
+//  - each step shows how long it takes; layers are timed automatically in the background
 (() => {
   registerLayerFields("pauseAfter");
 
@@ -34,39 +34,106 @@
     render();
   }
 
-  // ── Measured durations (per layer id, seconds), from a quick render ───────
-  const measured = new Map();
-  let measuring = false;
-  async function measure() {
-    if (measuring || state.recording || !state.layers.length) return;
-    measuring = true;
-    measuredScene = inkScenes.currentScene;
-    measured.clear();
-    measureBtn.textContent = "Measuring…";
-    const cur = inkScenes.current;
-    // A layer's time runs from the first frame it is drawing to the first frame it is not
-    // (finished, or its slot gone: the engine clears the slots after the last step).
-    const startOf = new Map();
-    const endOf = new Map();
-    let now = 0;
+  // ── Timing ────────────────────────────────────────────────────────────────
+  // Each layer is timed on its own by running just its animation on the manual clock, and
+  // the result is cached by everything that affects its length, so after an edit only the
+  // changed layers are timed again. A snapshot covers the canvas meanwhile.
+  const durations = new Map(); // signature -> seconds
+  const imageIds = new WeakMap();
+  let nextImageId = 1;
+  const imageId = (img) => {
+    if (!img) return 0;
+    if (!imageIds.has(img)) imageIds.set(img, nextImageId++);
+    return imageIds.get(img);
+  };
+  const SIG_FIELDS = [
+    "w", "h", "animStyle", "speed", "handSpeed", "chunks", "specChunks", "zigzag", "hand", "enterFrom",
+    "outlineDetect", "outlineAlgorithm", "outlineStrokeStyle", "colorStyle", "textAnimDir", "textDrawStyle",
+  ];
+  const signature = (l) => [imageId(l.img), state.canvasW, state.canvasH, ...SIG_FIELDS.map((f) => l[f])].join("|");
+  const durationOf = (l) => durations.get(signature(l));
+
+  async function timeLayer(layer) {
+    const saved = { layers: state.layers, groups: state.groups, selected: state.selectedLayerId };
+    let steps = 0;
+    let started = false;
+    inkClock.enterManual();
     try {
-      await inkMovie.render({
-        fps: 30,
-        width: 64,
-        height: 36,
-        from: cur,
-        to: cur,
-        onFrame: (_f, { time }) => {
-          now = time;
-          const active = new Set((state._activeSlots || []).filter((s) => !s.done).map((s) => s.layer.id));
-          for (const id of active) if (!startOf.has(id)) startOf.set(id, time);
-          for (const id of startOf.keys()) if (!active.has(id) && !endOf.has(id)) endOf.set(id, time);
-        },
-      });
-      for (const [id, start] of startOf) measured.set(id, Math.max(0.05, (endOf.get(id) ?? now) - start));
+      state.layers = [{ ...layer, visible: true, animOrder: null, pauseAfter: undefined }];
+      state.groups = [];
+      restartAnim();
+      let lastYield = inkClock.native.perfNow();
+      for (; steps < 60 * 300; steps++) {
+        inkClock.step();
+        if (!state.done) started = true;
+        if (started && isExportAnimationComplete()) break;
+        if (!started && steps > 30 && inkClock.idle()) break;
+        if (inkClock.native.perfNow() - lastYield > 50) {
+          await inkClock.breathe(); // keep the window responsive on heavy layers
+          lastYield = inkClock.native.perfNow();
+        }
+      }
     } finally {
-      measuring = false;
-      measureBtn.textContent = "Measure timing";
+      inkClock.leaveManual();
+      resetAnim();
+      state.layers = saved.layers;
+      state.groups = saved.groups;
+      state.selectedLayerId = saved.selected;
+      state.bgCanvas = null;
+    }
+    return steps / inkClock.STEPS_PER_SECOND;
+  }
+
+  // While timing: a still of the canvas on top, and clicks held off.
+  const cover = document.createElement("canvas");
+  cover.id = "tl-cover";
+  const blocker = document.createElement("div");
+  blocker.id = "tl-blocker";
+  blocker.innerHTML = '<span>Timing the timeline…</span>';
+  function showCover() {
+    cover.width = canvas.width;
+    cover.height = canvas.height;
+    cover.getContext("2d").drawImage(canvas, 0, 0);
+    cover.style.width = canvas.style.width;
+    cover.style.height = canvas.style.height;
+    canvas.after(cover);
+    document.body.appendChild(blocker);
+  }
+  function hideCover() {
+    cover.remove();
+    blocker.remove();
+  }
+
+  let mouseDown = false;
+  document.addEventListener("mousedown", () => (mouseDown = true), true);
+  document.addEventListener("mouseup", () => (mouseDown = false), true);
+  const busyNow = () =>
+    state.playing || state.recording || inkClock.manual || window.inkPlayer?.playing || mouseDown ||
+    (typeof _ts !== "undefined" && _ts.active) || (typeof _interact !== "undefined" && _interact);
+
+  let timer = 0;
+  let running = false;
+  function schedule(delay = 1200) {
+    clearTimeout(timer);
+    if (board.classList.contains("show-timeline")) timer = setTimeout(timePending, delay);
+  }
+  async function timePending() {
+    if (running) return;
+    if (busyNow()) return schedule(800);
+    const pending = getAnimOrder().filter((l) => durationOf(l) === undefined);
+    if (!pending.length) return render();
+    running = true;
+    status.textContent = "Timing…";
+    showCover();
+    try {
+      for (const l of pending) durations.set(signature(l), await timeLayer(l));
+    } catch (err) {
+      console.error("Timing failed:", err);
+    } finally {
+      hideCover();
+      running = false;
+      redrawLayersOnCanvas();
+      drawSelectionHandles();
       render();
     }
   }
@@ -83,20 +150,20 @@
   const view = document.createElement("div");
   view.className = "tl-view";
   board.querySelector(".sb-strip").after(view);
-  const measureBtn = document.createElement("button");
-  measureBtn.type = "button";
-  measureBtn.className = "tl-measure";
-  measureBtn.textContent = "Measure timing";
-  measureBtn.title = "Render this scene quickly to see how long each step takes";
-  measureBtn.addEventListener("click", measure);
-  board.querySelector(".sb-actions").prepend(measureBtn);
+  const status = document.createElement("span");
+  status.className = "tl-status";
+  status.title = "Length of this scene: steps, pauses and the hold at the end";
+  board.querySelector(".sb-actions").prepend(status);
 
   tabs.addEventListener("click", (e) => {
     const b = e.target.closest("[data-view]");
     if (!b) return;
     tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
     board.classList.toggle("show-timeline", b.dataset.view === "timeline");
-    if (b.dataset.view === "timeline") render();
+    if (b.dataset.view === "timeline") {
+      render();
+      schedule(150);
+    }
   });
 
   const PX_PER_SECOND = 70;
@@ -116,7 +183,7 @@
       step.className = "tl-step";
       step.dataset.step = i;
       step.draggable = true;
-      const secs = Math.max(...group.map((l) => measured.get(l.id) || 0));
+      const secs = Math.max(...group.map((l) => durationOf(l) || 0));
       if (secs) step.style.minWidth = `${Math.max(96, Math.round(secs * PX_PER_SECOND))}px`;
       step.innerHTML = `<div class="tl-step-head"><span class="tl-idx">${i + 1}</span><span class="tl-time">${secs ? `${secs.toFixed(1)}s` : ""}</span>${group.length > 1 ? '<span class="tl-together">together</span>' : ""}</div>`;
       for (const l of group) {
@@ -203,6 +270,14 @@
       });
       view.appendChild(gap);
     });
+    const known = list.every((g) => g.every((l) => durationOf(l) !== undefined));
+    if (!running) {
+      const total =
+        list.reduce((t, g, i) => t + Math.max(...g.map((l) => durationOf(l) || 0)) + (i < list.length - 1 ? 0.2 : 0), 0) +
+        list.reduce((t, g) => t + Math.max(0, ...g.map((l) => Number(l.pauseAfter) || 0)), 0) +
+        (inkScenes.currentScene?.hold ?? 1);
+      status.textContent = known ? `Scene ≈ ${total.toFixed(1)}s` : "";
+    }
     const hidden = state.layers.filter((l) => l.visible === false).length;
     if (hidden) {
       const note = document.createElement("div");
@@ -219,17 +294,16 @@
     if (!inkClock.manual) render();
     return r;
   };
-  // Measurements belong to a scene; the movie renderer re-activates the same scene when it
-  // finishes, which must not clear them.
-  let measuredScene = null;
   window.addEventListener("inkplainer:scene-changed", () => {
-    const scene = inkScenes.currentScene;
-    if (scene !== measuredScene) {
-      measured.clear();
-      measuredScene = scene;
-    }
     render();
+    schedule(400);
   });
+  // Every edit schedules an autosave; time what changed once editing pauses.
+  const originalAutoSave = window.scheduleAutoSave;
+  window.scheduleAutoSave = function (...args) {
+    if (!running) schedule();
+    return originalAutoSave.apply(this, args);
+  };
 
   // Pause per layer in its settings, too.
   inkLayerPanel.add((layer) =>
@@ -247,5 +321,5 @@
     ),
   );
 
-  window.inkTimeline = { pauseAfter, steps, render, measure };
+  window.inkTimeline = { pauseAfter, steps, render, durationOf, timeNow: timePending };
 })();

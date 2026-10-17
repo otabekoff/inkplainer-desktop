@@ -53,7 +53,8 @@
     vctx.imageSmoothingQuality = "high";
   }
 
-  async function play() {
+  // opts.from: start at that scene (with its transition in).
+  async function play(opts = {}) {
     if (playing || state.recording) return;
     if (!inkScenes.list.some((s) => s.layers.length)) {
       showToast("Add something to a scene first");
@@ -69,6 +70,7 @@
     try {
       await inkMovie.render({
         fps: FPS,
+        from: opts.from ?? 0,
         cancelled: () => stopped,
         onProgress: (f, s) => {
           fill.style.width = `${(f * 100).toFixed(1)}%`;

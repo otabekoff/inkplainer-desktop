@@ -131,6 +131,74 @@
     },
   };
 
+  // ── Live preview in the editor (optional) ────────────────────────────────
+  // While the editor's own Play runs, move the view like the movie camera does, with a
+  // CSS transform on the canvases (the drawing itself is untouched). A per-machine choice.
+  const PREVIEW_KEY = "inkplainer.cameraPreview";
+  let preview = false;
+  try {
+    preview = localStorage.getItem(PREVIEW_KEY) === "1";
+  } catch {
+    /* storage unavailable */
+  }
+  const viewCanvases = () => [canvas, handCanvas, selectCanvas];
+  let live = false;
+  let liveStart = 0;
+  function clearView() {
+    for (const c of viewCanvases()) {
+      c.style.transform = "";
+      c.style.transformOrigin = "";
+    }
+  }
+  (function previewLoop() {
+    // Between steps the animation briefly stops playing (its slots stay); keep following then.
+    const between = live && (state._activeSlots?.length > 0 || state.done);
+    const running = preview && window.inkCamera.enabled && !inkClock.manual && (state.playing || between);
+    if (running) {
+      const now = inkClock.native.perfNow() / 1000;
+      if (!live) {
+        live = true;
+        liveStart = now;
+        inkCamera.beginScene();
+      }
+      update(now - liveStart);
+      const W = state.canvasW;
+      const H = state.canvasH;
+      const w = Math.min(W, cam.w);
+      const h = (w * H) / W;
+      const sx = Math.min(Math.max(cam.cx - w / 2, 0), W - w);
+      const sy = Math.min(Math.max(cam.cy - h / 2, 0), H - h);
+      const k = (parseFloat(canvas.style.width) || W) / W; // CSS px per canvas px
+      const z = W / w;
+      for (const c of viewCanvases()) {
+        c.style.transformOrigin = "0 0";
+        c.style.transform = `translate(${-sx * k * z}px, ${-sy * k * z}px) scale(${z})`;
+      }
+    } else if (live) {
+      live = false;
+      clearView();
+    }
+    // Stop following once the animation is stopped or reset.
+    if (live && !state.playing && !state.done && !state._activeSlots?.length) {
+      live = false;
+      clearView();
+    }
+    inkClock.native.raf(previewLoop);
+  })();
+  window.inkCamera.setPreview = (on) => {
+    preview = !!on;
+    try {
+      localStorage.setItem(PREVIEW_KEY, preview ? "1" : "0");
+    } catch {
+      /* storage unavailable */
+    }
+    if (!preview) {
+      live = false;
+      clearView();
+    }
+  };
+  Object.defineProperty(window.inkCamera, "preview", { get: () => preview });
+
   // ── Bottom bar: Camera section for the current scene ─────────────────────
   const speed = [...document.querySelectorAll("#bottom-bar .bb-section")].find((s) => /Speed/.test(s.textContent));
   if (speed) {
@@ -151,6 +219,7 @@
           <span class="slider-val" id="camera-zoom-val"></span>
         </div>
         <label class="bb-camera-end"><input type="checkbox" id="camera-ending"> Zoom out at the end</label>
+        <label class="bb-camera-end" title="Move the editor view with the camera while Play runs"><input type="checkbox" id="camera-preview"> Preview in editor</label>
       </div>
       <div class="bb-camera-tip">Close-ups stay sharp on a 2K or 4K canvas exported at 1080p.</div>`;
     speed.after(sec);
@@ -180,6 +249,9 @@
     });
     zoom.addEventListener("input", () => edit({ zoom: Number(zoom.value) }));
     ending.addEventListener("change", () => edit({ ending: ending.checked ? "wide" : "stay" }));
+    const previewBox = sec.querySelector("#camera-preview");
+    previewBox.checked = window.inkCamera.preview;
+    previewBox.addEventListener("change", () => window.inkCamera.setPreview(previewBox.checked));
 
     // Follow the selected scene.
     window.addEventListener("inkplainer:scene-changed", sync);
