@@ -12,6 +12,8 @@ by NadirWeb-App and is now a fork that grows VideoScribe-style features on top o
 ## Features
 
 **Making the video**
+- **Templates:** start from a complete example video (Loops in TypeScript, A Book Explained, The
+  Water Cycle, Startup Pitch) and make it yours.
 - Drawing styles: scanner, contour, chunks, outline + fill (several stroke and colour styles),
   subject-aware orders (human, animal, portrait, vehicle, building, landscape, spiral).
 - Entrances: move in (the hand carries the element in), fade in, pop in, drop in.
@@ -20,9 +22,9 @@ by NadirWeb-App and is now a fork that grows VideoScribe-style features on top o
 - **Scenes** with transitions: cut, crossfade, dip to white/black, push, wipe, zoom, circle
   reveal; each scene has its own layers, background, hold time and undo history.
 - **Camera** that follows the drawing: zooms and pans to each element, follows the pen across
-  big ones, zooms out at the end. Per layer: auto, close-up or wide.
-- **Timeline** of each scene: reorder steps, make layers play together, add pauses, measure
-  how long each step takes.
+  big ones, zooms out at the end. Per layer: auto, close-up or wide. Can be previewed in the editor.
+- **Timeline** of each scene: reorder steps, make layers play together, add pauses; each step
+  shows how long it takes, timed automatically.
 - 19 background presets (whiteboard, paper, notebook, graph, dot grid, chalkboard, blueprint,
   kraft, cork, gradients, …) and image backgrounds (cover, fit, stretch, tile, with a wash).
 
@@ -39,7 +41,9 @@ by NadirWeb-App and is now a fork that grows VideoScribe-style features on top o
   and the video plays exactly like the preview, at the same speed on any monitor.
 - GPU: uses the discrete GPU on laptops with two, and the hardware video encoder, falling back
   to the CPU only when there is none.
-- Play movie previews every scene with transitions and camera, from the same renderer.
+- Play movie previews every scene with transitions and camera, from the same renderer; or play
+  from any scene.
+- After saving, a dialog offers Play video and Show in folder.
 
 ## Building
 
